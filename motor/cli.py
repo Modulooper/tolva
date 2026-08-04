@@ -1,4 +1,4 @@
-"""CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado |
+"""CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado/exportar |
 ticket crear/listar/editar/borrar | proceso analizar."""
 
 import argparse
@@ -8,7 +8,7 @@ from datetime import date
 
 import duckdb
 
-from . import cargas, db, motor_etl, perfil, solapamiento, tickets
+from . import cargas, db, export, motor_etl, perfil, solapamiento, tickets
 
 
 def _imprimir_tabla(columnas, filas) -> None:
@@ -137,6 +137,18 @@ def _cmd_etl_ejecutar(args: argparse.Namespace) -> int:
             )
     if not resultado["ficheros"]:
         print("No hay ficheros que coincidan con el patrón.")
+    return 0
+
+
+def _cmd_etl_exportar(args: argparse.Namespace) -> int:
+    try:
+        resultado = export.exportar(args.vista)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"Vista '{resultado['vista']}' exportada ({resultado['filas']} filas):")
+    print(f"  {resultado['parquet']}")
+    print(f"  {resultado['csv']}")
     return 0
 
 
@@ -282,6 +294,8 @@ def main(argv=None) -> int:
     ejecutar_parser.add_argument("carga")
     ejecutar_parser.add_argument("--forzar", action="store_true", help="Reprocesa aunque el hash ya esté OK")
     etl_sub.add_parser("estado", help="Últimas ejecuciones registradas")
+    exportar_parser = etl_sub.add_parser("exportar", help="Exporta una vista de consumo a /export")
+    exportar_parser.add_argument("vista")
 
     ticket_parser = subparsers.add_parser("ticket", help="CRUD de tickets de gasto")
     ticket_sub = ticket_parser.add_subparsers(dest="command", required=True)
@@ -338,6 +352,8 @@ def main(argv=None) -> int:
             return _cmd_etl_ejecutar(args)
         if args.command == "estado":
             return _cmd_etl_estado(args)
+        if args.command == "exportar":
+            return _cmd_etl_exportar(args)
 
     if args.namespace == "ticket":
         if args.command == "crear":

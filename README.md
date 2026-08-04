@@ -41,6 +41,8 @@ CRUD propio todavía).
 
 ```bash
 python -m motor.cli proceso analizar --campo <nombre-propuesto> [--valores v1,v2,...] [--umbral 0.5] [--json]
+
+python -m motor.cli etl exportar <vista>
 ```
 
 `<carga>` es el nombre de un fichero en `/cargas/<nombre>.json` (o una ruta
@@ -85,6 +87,23 @@ completo explicando cada decisión no obvia (formato de fecha, formato
 numérico, clave de upsert), y solo tras tu aprobación guarda
 `/cargas/<nombre>.json`, valida y enseña el `dry-run`. Nunca ejecuta la
 carga sin que confirmes el dry-run primero.
+
+## Vistas de consumo y export
+
+Las vistas de consumo (`movimiento_bancario_consumo`, `ticket_consumo`, ...)
+son `VIEW`s de DuckDB creadas por migración (`005_vistas_consumo.sql`):
+columnas curadas, con nombres amigables (`cliente`/`persona` en vez de los
+`_id`), sin columnas de sistema. `etl exportar <vista>` vuelca la vista a
+`/export/<vista>.parquet` y `/export/<vista>.csv`.
+
+**Limitación de DuckDB**: mientras haya una conexión Python abierta al
+`.duckdb`, el fichero queda bloqueado en escritura para cualquier otro
+proceso. `etl exportar` cierra la conexión explícitamente al terminar
+(`motor/export.py`), así que una vez el comando termina, tanto el almacén
+como los `.parquet`/`.csv` exportados quedan libres para que Excel o Power
+Query los abra sin conflicto. Si vas a dejar una consulta interactiva abierta
+contra `almacen.duckdb` (p. ej. desde un notebook), ciérrala antes de abrir
+los ficheros exportados desde otra herramienta.
 
 ## Estado actual
 
@@ -133,3 +152,10 @@ carga sin que confirmes el dry-run primero.
   entidad nueva integrada con lo existente (o justificar por qué no
   referencia núcleo, como `movimiento_bancario`), y solo tras tu aprobación
   escribir migración + `/catalogo/<tabla>.json` + entrada en `_decisiones`.
+- Hito 8: vistas de consumo (`migraciones/005_vistas_consumo.sql`) y export
+  (`motor/export.py`, comando `etl exportar <vista>`) a `/export` en parquet
+  y CSV, cerrando la conexión explícitamente al terminar. Probado extremo a
+  extremo: exporté `movimiento_bancario_consumo`, releí el parquet con una
+  conexión DuckDB nueva y los datos coincidían exactamente, y confirmé que
+  el almacén no queda bloqueado después (una consulta inmediata posterior
+  funciona sin conflicto).
