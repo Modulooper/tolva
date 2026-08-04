@@ -39,6 +39,10 @@ python -m motor.cli ticket borrar <id>
 `cliente`/`persona` se gestionan por ahora con `db consultar` (no tienen
 CRUD propio todavía).
 
+```bash
+python -m motor.cli proceso analizar --campo <nombre-propuesto> [--valores v1,v2,...] [--umbral 0.5] [--json]
+```
+
 `<carga>` es el nombre de un fichero en `/cargas/<nombre>.json` (o una ruta
 directa a un `.json`).
 
@@ -119,3 +123,13 @@ carga sin que confirmes el dry-run primero.
   sin autenticación) a `_ejecuciones` como semilla para un eventual modo
   multiusuario futuro; las filas anteriores a la migración quedan como
   `'desconocido'` en vez de reescribir el histórico.
+- Hito 7: detección de solapamiento con código (`motor/solapamiento.py`,
+  comando `proceso analizar --campo --valores`) — cruza nombre/sinónimo
+  contra el catálogo, cardinalidad de los valores propuestos (categoría
+  cerrada vs. entidad propia) y candidatos a clave foránea por solapamiento
+  real de valores contra las tablas existentes. Skill de Claude Code
+  `crear-proceso` (`.claude/skills/crear-proceso/SKILL.md`) que usa esa
+  evidencia para tomar requisitos por preguntas, proponer el esquema de una
+  entidad nueva integrada con lo existente (o justificar por qué no
+  referencia núcleo, como `movimiento_bancario`), y solo tras tu aprobación
+  escribir migración + `/catalogo/<tabla>.json` + entrada en `_decisiones`.

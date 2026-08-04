@@ -1,4 +1,5 @@
-"""CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado | ticket crear/listar/editar/borrar."""
+"""CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado |
+ticket crear/listar/editar/borrar | proceso analizar."""
 
 import argparse
 import json
@@ -7,7 +8,7 @@ from datetime import date
 
 import duckdb
 
-from . import cargas, db, motor_etl, perfil, tickets
+from . import cargas, db, motor_etl, perfil, solapamiento, tickets
 
 
 def _imprimir_tabla(columnas, filas) -> None:
@@ -208,6 +209,51 @@ def _cmd_ticket_borrar(args: argparse.Namespace) -> int:
         con.close()
 
 
+def _cmd_proceso_analizar(args: argparse.Namespace) -> int:
+    valores = [v.strip() for v in args.valores.split(",")] if args.valores else []
+
+    resultado = {
+        "campo": args.campo,
+        "coincidencias_por_nombre": solapamiento.coincidencias_por_nombre(args.campo),
+    }
+    if valores:
+        resultado["cardinalidad"] = solapamiento.cardinalidad(valores)
+        con = db.conectar()
+        try:
+            resultado["candidatos_fk"] = solapamiento.candidatos_fk(con, valores, umbral=args.umbral)
+        finally:
+            con.close()
+
+    if args.json:
+        print(json.dumps(resultado, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Campo propuesto: {resultado['campo']}")
+    if resultado["coincidencias_por_nombre"]:
+        print("Coincidencias por nombre/sinónimo en el catálogo:")
+        for c in resultado["coincidencias_por_nombre"]:
+            print(f"  - {c['tabla']}.{c['campo']}")
+    else:
+        print("Sin coincidencias por nombre/sinónimo en el catálogo.")
+
+    if valores:
+        card = resultado["cardinalidad"]
+        print(
+            f"\nCardinalidad de los valores propuestos: {card['distintos']} distintos "
+            f"de {card['total']} (ratio unicidad {card['ratio_unicidad']:.2f})"
+        )
+        if resultado["candidatos_fk"]:
+            print(f"Candidatos a clave foránea (umbral {args.umbral}):")
+            for c in resultado["candidatos_fk"]:
+                print(
+                    f"  - {c['tabla']}.{c['columna']}: {c['coinciden']}/{c['total_propuestos']} "
+                    f"coinciden (ratio {c['ratio']:.2f}) -> {c['valores_coincidentes']}"
+                )
+        else:
+            print(f"Sin candidatos a clave foránea por encima del umbral ({args.umbral}).")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="motor")
     subparsers = parser.add_subparsers(dest="namespace", required=True)
@@ -265,6 +311,14 @@ def main(argv=None) -> int:
     borrar_parser = ticket_sub.add_parser("borrar", help="Borra un ticket")
     borrar_parser.add_argument("id")
 
+    proceso_parser = subparsers.add_parser("proceso", help="Análisis de solapamiento para entidades nuevas")
+    proceso_sub = proceso_parser.add_subparsers(dest="command", required=True)
+    analizar_parser = proceso_sub.add_parser("analizar", help="Comprueba solapamiento de un campo propuesto")
+    analizar_parser.add_argument("--campo", required=True, help="Nombre de campo propuesto")
+    analizar_parser.add_argument("--valores", default=None, help="Valores de ejemplo separados por coma")
+    analizar_parser.add_argument("--umbral", type=float, default=0.5)
+    analizar_parser.add_argument("--json", action="store_true")
+
     args = parser.parse_args(argv)
 
     if args.namespace == "db":
@@ -294,6 +348,10 @@ def main(argv=None) -> int:
             return _cmd_ticket_editar(args)
         if args.command == "borrar":
             return _cmd_ticket_borrar(args)
+
+    if args.namespace == "proceso":
+        if args.command == "analizar":
+            return _cmd_proceso_analizar(args)
 
     parser.print_help()
     return 1
