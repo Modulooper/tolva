@@ -1,11 +1,12 @@
-"""CLI: db migrar/consultar | etl validar/dry-run/ejecutar/estado."""
+"""CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado."""
 
 import argparse
+import json
 import sys
 
 import duckdb
 
-from . import cargas, db, motor_etl
+from . import cargas, db, motor_etl, perfil
 
 
 def _imprimir_tabla(columnas, filas) -> None:
@@ -45,6 +46,35 @@ def _cmd_db_consultar(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     _imprimir_tabla(columnas, filas)
+    return 0
+
+
+def _cmd_etl_definir(args: argparse.Namespace) -> int:
+    try:
+        resultado = perfil.perfilar(
+            args.fichero,
+            formato=args.formato,
+            delimitador=args.delimitador,
+            encoding=args.encoding,
+            hoja=args.hoja,
+            fila_cabecera=args.fila_cabecera,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(resultado, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Fichero: {resultado['fichero']}  formato={resultado['formato']}  filas_leidas={resultado['filas_leidas']}")
+    for c in resultado["columnas"]:
+        print(f"\n- {c['columna']}")
+        print(f"    tipo aparente: {c['tipo_aparente']}")
+        print(f"    nulos: {c['nulos']}/{c['filas_totales']}   cardinalidad: {c['cardinalidad']}")
+        print(f"    muestra: {c['muestra_valores']}")
+        if c["sugerencias_catalogo"]:
+            print(f"    sugerencia catálogo: {c['sugerencias_catalogo']}")
     return 0
 
 
@@ -129,6 +159,14 @@ def main(argv=None) -> int:
 
     etl_parser = subparsers.add_parser("etl", help="Operaciones sobre cargas ETL")
     etl_sub = etl_parser.add_subparsers(dest="command", required=True)
+    definir_parser = etl_sub.add_parser("definir", help="Perfila un fichero de muestra")
+    definir_parser.add_argument("fichero")
+    definir_parser.add_argument("--formato", choices=["csv", "excel"], default=None)
+    definir_parser.add_argument("--delimitador", default=",")
+    definir_parser.add_argument("--encoding", default="utf-8-sig")
+    definir_parser.add_argument("--hoja", default=None)
+    definir_parser.add_argument("--fila-cabecera", type=int, default=1, dest="fila_cabecera")
+    definir_parser.add_argument("--json", action="store_true", help="Salida en JSON")
     validar_parser = etl_sub.add_parser("validar", help="Valida una definición de carga")
     validar_parser.add_argument("carga")
     dry_run_parser = etl_sub.add_parser("dry-run", help="Ejecuta sin escribir en el almacén")
@@ -147,6 +185,8 @@ def main(argv=None) -> int:
             return _cmd_db_consultar(args)
 
     if args.namespace == "etl":
+        if args.command == "definir":
+            return _cmd_etl_definir(args)
         if args.command == "validar":
             return _cmd_etl_validar(args)
         if args.command == "dry-run":

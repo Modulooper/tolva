@@ -24,6 +24,7 @@ pip install -r requirements.txt
 python -m motor.cli db migrar
 python -m motor.cli db consultar "select * from cliente"
 
+python -m motor.cli etl definir <fichero-muestra> [--formato --delimitador --encoding --hoja --fila-cabecera] [--json]
 python -m motor.cli etl validar <carga>
 python -m motor.cli etl dry-run <carga>
 python -m motor.cli etl ejecutar <carga> [--forzar]
@@ -63,6 +64,16 @@ entrada en el catálogo y que cada campo del mapping esté declarado en ella;
 un campo inexistente en el catálogo se rechaza ahí, no en `etl ejecutar`.
 Toda tabla nueva necesita su entrada de catálogo antes de poder cargarse.
 
+## Skill `definir-carga`
+
+`.claude/skills/definir-carga/SKILL.md`. Toma un fichero de muestra,
+lo perfila con `etl definir` (tipos aparentes, nulos, cardinalidad,
+sugerencias de campo destino por sinónimo del catálogo), propone el mapping
+completo explicando cada decisión no obvia (formato de fecha, formato
+numérico, clave de upsert), y solo tras tu aprobación guarda
+`/cargas/<nombre>.json`, valida y enseña el `dry-run`. Nunca ejecuta la
+carga sin que confirmes el dry-run primero.
+
 ## Estado actual
 
 - Hito 1: estructura del repo, migración núcleo (`persona`, `cliente`, `proyecto`
@@ -85,3 +96,10 @@ Toda tabla nueva necesita su entrada de catálogo antes de poder cargarse.
   rechaza cualquier campo de mapping no declarado en el catálogo de la tabla
   destino, y cualquier tabla destino sin entrada de catálogo, sin necesitar
   conexión a la base.
+- Hito 5: perfilado de ficheros de muestra (`motor/perfil.py`, comando
+  `etl definir`) — tipos aparentes, nulos, cardinalidad, muestra de valores
+  y sugerencias de campo destino cruzando cabeceras contra sinónimos del
+  catálogo. Skill de Claude Code `definir-carga`
+  (`.claude/skills/definir-carga/SKILL.md`) que usa ese perfil para proponer
+  una definición de carga completa, mostrarla para aprobación, y solo
+  entonces guardarla, validarla y enseñar el dry-run.
