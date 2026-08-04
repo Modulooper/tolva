@@ -5,6 +5,7 @@ el usuario) es lo único que decide cómo se transforma cada columna.
 """
 
 import csv
+import getpass
 import hashlib
 import json
 import time
@@ -184,8 +185,8 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
         _upsert(con, definicion["tabla_destino"], definicion["clave_upsert"], resultado.validas)
         ejecucion_id = con.execute(
             """INSERT INTO _ejecuciones
-               (carga, fichero, hash_fichero, filas_leidas, filas_ok, filas_rechazadas, estado, duracion)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""",
+               (carga, fichero, hash_fichero, filas_leidas, filas_ok, filas_rechazadas, estado, duracion, usuario)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""",
             [
                 nombre_carga,
                 ruta.name,
@@ -195,6 +196,7 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
                 len(resultado.rechazadas),
                 estado,
                 time.perf_counter() - inicio,
+                getpass.getuser(),
             ],
         ).fetchone()[0]
         for num_fila, motivo, campo, raw in resultado.rechazadas:

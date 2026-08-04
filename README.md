@@ -29,7 +29,15 @@ python -m motor.cli etl validar <carga>
 python -m motor.cli etl dry-run <carga>
 python -m motor.cli etl ejecutar <carga> [--forzar]
 python -m motor.cli etl estado
+
+python -m motor.cli ticket crear --cliente <nombre> --persona <nombre> --concepto <viajes|hoteles|gasolina> --importe <n> --fecha <YYYY-MM-DD> [--descripcion <texto>]
+python -m motor.cli ticket listar [--cliente] [--persona] [--concepto] [--desde YYYY-MM-DD] [--hasta YYYY-MM-DD]
+python -m motor.cli ticket editar <id> [--concepto] [--descripcion] [--importe] [--fecha]
+python -m motor.cli ticket borrar <id>
 ```
+
+`cliente`/`persona` se gestionan por ahora con `db consultar` (no tienen
+CRUD propio todavía).
 
 `<carga>` es el nombre de un fichero en `/cargas/<nombre>.json` (o una ruta
 directa a un `.json`).
@@ -103,3 +111,11 @@ carga sin que confirmes el dry-run primero.
   (`.claude/skills/definir-carga/SKILL.md`) que usa ese perfil para proponer
   una definición de carga completa, mostrarla para aprobación, y solo
   entonces guardarla, validarla y enseñar el dry-run.
+- Hito 6: primera tabla de proceso de negocio con CRUD por CLI.
+  `migraciones/004_ticket.sql` (`ticket`, con `cliente_id`/`persona_id` como
+  FK y `concepto` restringido por `CHECK` a viajes/hoteles/gasolina) +
+  `catalogo/ticket.json` + comandos `ticket crear/listar/editar/borrar`.
+  `migraciones/003_ejecuciones_usuario.sql` añade `usuario` (login del SO,
+  sin autenticación) a `_ejecuciones` como semilla para un eventual modo
+  multiusuario futuro; las filas anteriores a la migración quedan como
+  `'desconocido'` en vez de reescribir el histórico.

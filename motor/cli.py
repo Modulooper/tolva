@@ -1,12 +1,13 @@
-"""CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado."""
+"""CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado | ticket crear/listar/editar/borrar."""
 
 import argparse
 import json
 import sys
+from datetime import date
 
 import duckdb
 
-from . import cargas, db, motor_etl, perfil
+from . import cargas, db, motor_etl, perfil, tickets
 
 
 def _imprimir_tabla(columnas, filas) -> None:
@@ -147,6 +148,66 @@ def _cmd_etl_estado(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ticket_crear(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            ticket_id = tickets.crear(
+                con, args.cliente, args.persona, args.concepto, args.importe, args.fecha, args.descripcion
+            )
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(f"Ticket creado: {ticket_id}")
+        return 0
+    finally:
+        con.close()
+
+
+def _cmd_ticket_listar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        columnas, filas = tickets.listar(
+            con, cliente=args.cliente, persona=args.persona, concepto=args.concepto,
+            desde=args.desde, hasta=args.hasta,
+        )
+    finally:
+        con.close()
+    _imprimir_tabla(columnas, filas)
+    return 0
+
+
+def _cmd_ticket_editar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            tickets.editar(
+                con, args.id, concepto=args.concepto, descripcion=args.descripcion,
+                importe=args.importe, fecha=args.fecha,
+            )
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print("Ticket actualizado.")
+        return 0
+    finally:
+        con.close()
+
+
+def _cmd_ticket_borrar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            tickets.borrar(con, args.id)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print("Ticket borrado.")
+        return 0
+    finally:
+        con.close()
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="motor")
     subparsers = parser.add_subparsers(dest="namespace", required=True)
@@ -176,6 +237,34 @@ def main(argv=None) -> int:
     ejecutar_parser.add_argument("--forzar", action="store_true", help="Reprocesa aunque el hash ya esté OK")
     etl_sub.add_parser("estado", help="Últimas ejecuciones registradas")
 
+    ticket_parser = subparsers.add_parser("ticket", help="CRUD de tickets de gasto")
+    ticket_sub = ticket_parser.add_subparsers(dest="command", required=True)
+
+    crear_parser = ticket_sub.add_parser("crear", help="Crea un ticket")
+    crear_parser.add_argument("--cliente", required=True)
+    crear_parser.add_argument("--persona", required=True)
+    crear_parser.add_argument("--concepto", required=True, choices=list(tickets.CONCEPTOS_VALIDOS))
+    crear_parser.add_argument("--importe", required=True, type=float)
+    crear_parser.add_argument("--fecha", required=True, type=date.fromisoformat)
+    crear_parser.add_argument("--descripcion", default=None)
+
+    listar_parser = ticket_sub.add_parser("listar", help="Lista tickets")
+    listar_parser.add_argument("--cliente", default=None)
+    listar_parser.add_argument("--persona", default=None)
+    listar_parser.add_argument("--concepto", default=None, choices=list(tickets.CONCEPTOS_VALIDOS))
+    listar_parser.add_argument("--desde", default=None, type=date.fromisoformat)
+    listar_parser.add_argument("--hasta", default=None, type=date.fromisoformat)
+
+    editar_parser = ticket_sub.add_parser("editar", help="Edita un ticket")
+    editar_parser.add_argument("id")
+    editar_parser.add_argument("--concepto", default=None, choices=list(tickets.CONCEPTOS_VALIDOS))
+    editar_parser.add_argument("--importe", default=None, type=float)
+    editar_parser.add_argument("--fecha", default=None, type=date.fromisoformat)
+    editar_parser.add_argument("--descripcion", default=None)
+
+    borrar_parser = ticket_sub.add_parser("borrar", help="Borra un ticket")
+    borrar_parser.add_argument("id")
+
     args = parser.parse_args(argv)
 
     if args.namespace == "db":
@@ -195,6 +284,16 @@ def main(argv=None) -> int:
             return _cmd_etl_ejecutar(args)
         if args.command == "estado":
             return _cmd_etl_estado(args)
+
+    if args.namespace == "ticket":
+        if args.command == "crear":
+            return _cmd_ticket_crear(args)
+        if args.command == "listar":
+            return _cmd_ticket_listar(args)
+        if args.command == "editar":
+            return _cmd_ticket_editar(args)
+        if args.command == "borrar":
+            return _cmd_ticket_borrar(args)
 
     parser.print_help()
     return 1
