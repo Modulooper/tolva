@@ -18,8 +18,8 @@ def _hash_fichero(ruta: Path) -> str:
     return hashlib.sha256(ruta.read_bytes()).hexdigest()
 
 
-def _leer_csv(ruta: Path, delimitador: str, fila_cabecera: int):
-    with ruta.open(encoding="utf-8-sig", newline="") as f:
+def _leer_csv(ruta: Path, delimitador: str, fila_cabecera: int, encoding: str):
+    with ruta.open(encoding=encoding, newline="") as f:
         filas = list(csv.reader(f, delimiter=delimitador))
     cabecera = filas[fila_cabecera - 1]
     datos = filas[fila_cabecera:]
@@ -44,7 +44,12 @@ def _leer_excel(ruta: Path, hoja, fila_cabecera: int):
 
 def leer_fichero(ruta: Path, definicion: dict):
     if definicion["formato"] == "csv":
-        return _leer_csv(ruta, definicion.get("delimitador", ","), definicion["fila_cabecera"])
+        return _leer_csv(
+            ruta,
+            definicion.get("delimitador", ","),
+            definicion["fila_cabecera"],
+            definicion.get("encoding", "utf-8-sig"),
+        )
     return _leer_excel(ruta, definicion.get("hoja"), definicion["fila_cabecera"])
 
 

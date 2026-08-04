@@ -2,6 +2,10 @@
 /datos/*.duckdb.wal
 /export/*
 !/export/.gitkeep
+/entrada/**
+!/entrada/.gitkeep
+!/entrada/*/
+!/entrada/**/.gitkeep
 __pycache__/
 *.pyc
 .venv/

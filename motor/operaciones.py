@@ -29,6 +29,7 @@ SCHEMAS = {
         "properties": {
             "tipo": {"const": "cast"},
             "tipo_destino": {"enum": ["varchar", "integer", "double", "boolean", "date"]},
+            "formato_numerico": {"enum": ["en", "es"]},
         },
         "required": ["tipo", "tipo_destino"],
         "additionalProperties": False,
@@ -65,17 +66,24 @@ def _aplicar_trim(valor, params, contexto):
     return str(valor).strip()
 
 
+def _normalizar_numero(texto: str, formato_numerico: str) -> str:
+    if formato_numerico == "es":
+        return texto.replace(".", "").replace(",", ".")
+    return texto
+
+
 def _aplicar_cast(valor, params, contexto):
     if valor is None or str(valor).strip() == "":
         return None
     tipo_destino = params["tipo_destino"]
     texto = str(valor).strip()
+    formato_numerico = params.get("formato_numerico", "en")
     if tipo_destino == "varchar":
         return texto
     if tipo_destino == "integer":
-        return int(float(texto))
+        return int(float(_normalizar_numero(texto, formato_numerico)))
     if tipo_destino == "double":
-        return float(texto)
+        return float(_normalizar_numero(texto, formato_numerico))
     if tipo_destino == "boolean":
         texto_l = texto.lower()
         if texto_l in _BOOLEANOS_VERDADEROS:

@@ -18,6 +18,7 @@ SCHEMA_DEFINICION = {
         "patron": {"type": "string", "minLength": 1},
         "formato": {"enum": ["csv", "excel"]},
         "delimitador": {"type": "string", "minLength": 1},
+        "encoding": {"type": "string", "minLength": 1},
         "hoja": {"type": ["string", "integer", "null"]},
         "fila_cabecera": {"type": "integer", "minimum": 1},
         "tabla_destino": {"type": "string", "minLength": 1},

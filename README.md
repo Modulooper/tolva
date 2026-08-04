@@ -11,7 +11,7 @@ recurrentes. Sin servidor, sin autenticación, sin multiusuario.
 /migraciones/       001_nucleo.sql, 002_..., aplicadas en orden por `db migrar`
 /cargas/            una definición JSON por tipo de carga
 /catalogo/          catálogo semántico del modelo de datos
-/entrada/           carpetas vigiladas donde se depositan los ficheros a cargar
+/entrada/           carpetas vigiladas donde se depositan los ficheros a cargar (no versionado)
 /export/            vistas de consumo volcadas a parquet/csv
 /datos/almacen.duckdb   estado (no versionado)
 ```
@@ -49,6 +49,11 @@ Excel se detectan por rango numérico plausible, con época configurable
 Las tablas destino con `clave_upsert` necesitan una restricción `UNIQUE`
 sobre esas columnas (el motor hace `INSERT ... ON CONFLICT ... DO UPDATE`).
 
+`cast` admite `formato_numerico: "es"` para números con miles en `.` y
+decimales en `,` (p.ej. extractos bancarios españoles). La definición de
+carga admite un campo opcional `encoding` (por defecto `utf-8-sig`) para
+ficheros CSV que no vengan en UTF-8.
+
 ## Estado actual
 
 - Hito 1: estructura del repo, migración núcleo (`persona`, `cliente`, `proyecto`
@@ -59,3 +64,10 @@ sobre esas columnas (el motor hace `INSERT ... ON CONFLICT ... DO UPDATE`).
   idempotencia por hash de fichero, upsert por clave declarada, rechazos con
   motivo y `extra_fields` para columnas no declaradas. CLI `etl validar`,
   `etl dry-run`, `etl ejecutar [--forzar]`, `etl estado`.
+- Hito 3: primera carga real (`cargas/movimientos_banco.json` +
+  `migraciones/002_movimiento_bancario.sql`) sobre extractos bancarios reales
+  (CSV `;`, cp1252, números en formato español). La clave de upsert
+  (fecha_ejecucion, fecha_valor, concepto, importe, saldo) hace que subir el
+  extracto acumulado del mes, mes a mes, solo añada los movimientos nuevos.
+  Validado con dry-run y con reejecución sobre un extracto que solapaba
+  movimientos ya cargados: no duplicó ninguno.
