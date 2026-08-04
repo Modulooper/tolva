@@ -54,6 +54,15 @@ decimales en `,` (p.ej. extractos bancarios españoles). La definición de
 carga admite un campo opcional `encoding` (por defecto `utf-8-sig`) para
 ficheros CSV que no vengan en UTF-8.
 
+## Catálogo semántico
+
+`/catalogo/<tabla>.json` es la fuente de verdad del modelo: por cada tabla,
+sus campos (tipo, obligatoriedad, sinónimos observados, descripción) y sus
+relaciones. `etl validar` exige que la tabla destino de una carga tenga
+entrada en el catálogo y que cada campo del mapping esté declarado en ella;
+un campo inexistente en el catálogo se rechaza ahí, no en `etl ejecutar`.
+Toda tabla nueva necesita su entrada de catálogo antes de poder cargarse.
+
 ## Estado actual
 
 - Hito 1: estructura del repo, migración núcleo (`persona`, `cliente`, `proyecto`
@@ -71,3 +80,8 @@ ficheros CSV que no vengan en UTF-8.
   extracto acumulado del mes, mes a mes, solo añada los movimientos nuevos.
   Validado con dry-run y con reejecución sobre un extracto que solapaba
   movimientos ya cargados: no duplicó ninguno.
+- Hito 4: catálogo semántico (`motor/catalogo.py` + `/catalogo/*.json` para
+  `persona`, `cliente`, `proyecto`, `movimiento_bancario`). `cargas.validar`
+  rechaza cualquier campo de mapping no declarado en el catálogo de la tabla
+  destino, y cualquier tabla destino sin entrada de catálogo, sin necesitar
+  conexión a la base.

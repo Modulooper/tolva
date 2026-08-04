@@ -5,7 +5,7 @@ from pathlib import Path
 
 import jsonschema
 
-from . import operaciones
+from . import catalogo, operaciones
 
 ROOT = Path(__file__).resolve().parent.parent
 CARGAS_DIR = ROOT / "cargas"
@@ -102,6 +102,8 @@ def validar(definicion: dict, con=None) -> list:
     for clave in definicion["clave_upsert"]:
         if clave not in destinos:
             errores.append(f"clave de upsert '{clave}' no está en el mapping")
+
+    errores.extend(catalogo.validar_mapping_contra_catalogo(definicion["tabla_destino"], destinos))
 
     if con is not None:
         tabla = definicion["tabla_destino"]

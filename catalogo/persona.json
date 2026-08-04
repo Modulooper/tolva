@@ -1,0 +1,15 @@
+{
+  "entidad": "persona",
+  "tabla": "persona",
+  "descripcion": "Persona física relacionada con el trabajo: quién hace las cosas.",
+  "campos": {
+    "id": {"tipo": "uuid", "obligatorio": true, "sistema": true, "descripcion": "Identificador interno.", "sinonimos": []},
+    "nombre": {"tipo": "varchar", "obligatorio": true, "descripcion": "Nombre completo.", "sinonimos": ["Nombre", "Name"]},
+    "email": {"tipo": "varchar", "obligatorio": false, "descripcion": "Correo electrónico.", "sinonimos": ["Email", "Correo", "E-mail"]},
+    "rol": {"tipo": "varchar", "obligatorio": false, "descripcion": "Rol o cargo de la persona.", "sinonimos": ["Rol", "Cargo"]},
+    "activo": {"tipo": "boolean", "obligatorio": true, "descripcion": "Si la persona sigue activa.", "sinonimos": []},
+    "created_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de alta del registro.", "sinonimos": []},
+    "updated_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de última modificación.", "sinonimos": []}
+  },
+  "relaciones": []
+}

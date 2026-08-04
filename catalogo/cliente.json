@@ -1,0 +1,14 @@
+{
+  "entidad": "cliente",
+  "tabla": "cliente",
+  "descripcion": "Cliente para el que se hace el trabajo.",
+  "campos": {
+    "id": {"tipo": "uuid", "obligatorio": true, "sistema": true, "descripcion": "Identificador interno.", "sinonimos": []},
+    "nombre": {"tipo": "varchar", "obligatorio": true, "descripcion": "Razón social o nombre del cliente.", "sinonimos": ["Nombre", "Cliente", "Razon Social", "Razón Social"]},
+    "nif": {"tipo": "varchar", "obligatorio": false, "descripcion": "NIF/CIF del cliente.", "sinonimos": ["NIF", "CIF", "DNI"]},
+    "activo": {"tipo": "boolean", "obligatorio": true, "descripcion": "Si el cliente sigue activo.", "sinonimos": []},
+    "created_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de alta del registro.", "sinonimos": []},
+    "updated_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de última modificación.", "sinonimos": []}
+  },
+  "relaciones": []
+}

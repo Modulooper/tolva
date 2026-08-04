@@ -1,0 +1,19 @@
+{
+  "entidad": "proyecto",
+  "tabla": "proyecto",
+  "descripcion": "Proyecto en cuyo marco se hacen las cosas, siempre de un cliente.",
+  "campos": {
+    "id": {"tipo": "uuid", "obligatorio": true, "sistema": true, "descripcion": "Identificador interno.", "sinonimos": []},
+    "cliente_id": {"tipo": "uuid", "obligatorio": true, "descripcion": "Cliente al que pertenece el proyecto.", "sinonimos": []},
+    "nombre": {"tipo": "varchar", "obligatorio": true, "descripcion": "Nombre del proyecto.", "sinonimos": ["Nombre", "Proyecto"]},
+    "codigo": {"tipo": "varchar", "obligatorio": false, "descripcion": "Código interno o de facturación del proyecto.", "sinonimos": ["Codigo", "Código", "Ref"]},
+    "fecha_inicio": {"tipo": "date", "obligatorio": false, "descripcion": "Fecha de inicio del proyecto.", "sinonimos": ["Fecha inicio", "Inicio"]},
+    "fecha_fin": {"tipo": "date", "obligatorio": false, "descripcion": "Fecha de fin del proyecto.", "sinonimos": ["Fecha fin", "Fin"]},
+    "activo": {"tipo": "boolean", "obligatorio": true, "descripcion": "Si el proyecto sigue activo.", "sinonimos": []},
+    "created_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de alta del registro.", "sinonimos": []},
+    "updated_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de última modificación.", "sinonimos": []}
+  },
+  "relaciones": [
+    {"campo": "cliente_id", "entidad_destino": "cliente", "campo_destino": "id", "tipo": "N:1"}
+  ]
+}
