@@ -1,0 +1,7 @@
+/datos/*.duckdb
+/datos/*.duckdb.wal
+/export/*
+!/export/.gitkeep
+__pycache__/
+*.pyc
+.venv/
