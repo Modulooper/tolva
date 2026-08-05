@@ -4,6 +4,52 @@ Plataforma local, monousuario y autónoma sobre DuckDB para gestionar informaci�
 de trabajo propia: procesos de negocio (CRUD) y ETL conversacional de ficheros
 recurrentes. Sin servidor, sin autenticación, sin multiusuario.
 
+## Instalación
+
+Requisitos: Python 3.11+ y Git.
+
+```bash
+git clone <url-del-repo>
+cd ClaudETL
+
+python -m venv .venv
+source .venv/Scripts/activate   # Windows Git Bash / PowerShell: .venv\Scripts\Activate.ps1
+                                 # macOS/Linux: source .venv/bin/activate
+
+pip install -r requirements.txt
+
+python -m motor.cli db migrar
+```
+
+El último comando crea `datos/almacen.duckdb` desde cero y aplica todas las
+migraciones en orden. `datos/`, `entrada/` y `export/` están en `.gitignore`
+(son estado local, no código), así que cada instalación arranca con el
+almacén vacío.
+
+Comprobación rápida:
+
+```bash
+python -m motor.cli ticket listar
+python -m motor.cli idea listar
+```
+Ambos deberían devolver "(0 filas)" en una instalación nueva sin errores.
+
+### Instalación asistida por IA
+
+Este repo incluye skills de Claude Code en `.claude/skills/` (`definir-carga`,
+`crear-proceso`) que son el diferencial del proyecto: perfilan ficheros,
+comprueban solapamiento contra el catálogo semántico y proponen esquema antes
+de tocar nada. Para que la instalación completa (clonar, crear venv, instalar
+dependencias, migrar, y luego usar esos skills) la haga la IA sola, hace falta
+**Claude Code** (la CLI), no Claude Desktop/claude.ai: Code tiene acceso
+directo a terminal y sistema de ficheros locales, que es lo que requieren los
+pasos de arriba y lo que activa `.claude/skills/` automáticamente al abrir el
+repo. Claude Desktop, sin un MCP de terminal/filesystem conectado, no puede
+ejecutar `git clone`, `pip install` ni `python -m motor.cli` — como mucho
+podría leer este README y devolver los pasos en texto para que los ejecutes
+tú. Con un MCP de ese tipo configurado sí podría, en teoría, pero no es la
+vía pensada ni probada para este proyecto.
+
 ## Estructura
 
 ```
@@ -30,14 +76,21 @@ python -m motor.cli etl dry-run <carga>
 python -m motor.cli etl ejecutar <carga> [--forzar]
 python -m motor.cli etl estado
 
-python -m motor.cli ticket crear --cliente <nombre> --persona <nombre> --concepto <viajes|hoteles|gasolina> --importe <n> --fecha <YYYY-MM-DD> [--descripcion <texto>]
+python -m motor.cli ticket crear --cliente <nombre> --persona <nombre> --concepto <viajes|hoteles|gasolina|otros> --importe <n> --fecha <YYYY-MM-DD> [--descripcion <texto>]
 python -m motor.cli ticket listar [--cliente] [--persona] [--concepto] [--desde YYYY-MM-DD] [--hasta YYYY-MM-DD]
 python -m motor.cli ticket editar <id> [--concepto] [--descripcion] [--importe] [--fecha]
 python -m motor.cli ticket borrar <id>
+
+python -m motor.cli idea crear --persona <nombre> --texto <texto> [--cliente <nombre>] [--estado <pendiente|en_curso|descartada|hecha>] [--fecha YYYY-MM-DD]
+python -m motor.cli idea listar [--persona] [--cliente] [--estado] [--desde YYYY-MM-DD] [--hasta YYYY-MM-DD]
+python -m motor.cli idea editar <id> [--texto] [--cliente] [--estado] [--fecha]
+python -m motor.cli idea borrar <id>
 ```
 
 `cliente`/`persona` se gestionan por ahora con `db consultar` (no tienen
-CRUD propio todavía).
+CRUD propio todavía). En `idea`, `--fecha` es opcional al crear (por defecto
+hoy) y `--cliente` también (una idea no tiene por qué estar ligada a un
+cliente concreto).
 
 ```bash
 python -m motor.cli proceso analizar --campo <nombre-propuesto> [--valores v1,v2,...] [--umbral 0.5] [--json]
@@ -90,8 +143,9 @@ carga sin que confirmes el dry-run primero.
 
 ## Vistas de consumo y export
 
-Las vistas de consumo (`movimiento_bancario_consumo`, `ticket_consumo`, ...)
-son `VIEW`s de DuckDB creadas por migración (`005_vistas_consumo.sql`):
+Las vistas de consumo (`movimiento_bancario_consumo`, `ticket_consumo`,
+`idea_consumo`, ...) son `VIEW`s de DuckDB creadas por migración
+(`005_vistas_consumo.sql`, `008_idea_consumo.sql`):
 columnas curadas, con nombres amigables (`cliente`/`persona` en vez de los
 `_id`), sin columnas de sistema. `etl exportar <vista>` vuelca la vista a
 `/export/<vista>.parquet` y `/export/<vista>.csv`.
@@ -159,3 +213,12 @@ los ficheros exportados desde otra herramienta.
   conexión DuckDB nueva y los datos coincidían exactamente, y confirmé que
   el almacén no queda bloqueado después (una consulta inmediata posterior
   funciona sin conflicto).
+- Hito 9: `ticket.concepto` amplía su `CHECK` a `otros`
+  (`migraciones/006_ticket_concepto_otros.sql` — recrea la tabla porque
+  DuckDB no soporta `ALTER TABLE ... DROP/ADD CONSTRAINT`). Segunda tabla de
+  proceso de negocio con CRUD por CLI: `idea`
+  (`migraciones/007_idea.sql`, `catalogo/idea.json`, `motor/ideas.py`,
+  comandos `idea crear/listar/editar/borrar`), con `persona_id` obligatorio
+  y `cliente_id` opcional, y su vista de consumo
+  (`migraciones/008_idea_consumo.sql`, con `LEFT JOIN` a `cliente` porque el
+  vínculo es opcional).
