@@ -165,5 +165,17 @@
   ],
   "campos_singularidad": [
     "origen_carga"
+  ],
+  "salidas": [
+    {
+      "nombre": "resumen_delegacion",
+      "fichero": "%Y%m%d_previ_ok.xlsx",
+      "sql": "SELECT deleg_nombre, anio, mes, count(*) AS lineas, round(sum(coste_ventilado),2) AS coste FROM previ_transporte WHERE anio IS NOT NULL GROUP BY 1,2,3 ORDER BY 1,2,3"
+    },
+    {
+      "nombre": "detalle_csv",
+      "fichero": "%Y%m%d_previ_detalle_{ejecucion_id}.csv",
+      "sql": "SELECT codigo_ut, transportista, nombre_cliente, deleg_nombre, anio, mes, coste_ventilado FROM previ_transporte WHERE anio IS NOT NULL"
+    }
   ]
 }

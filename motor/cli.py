@@ -16,6 +16,7 @@ from . import (
     ideas,
     motor_etl,
     perfil,
+    salidas,
     solapamiento,
     tickets,
     validaciones,
@@ -207,9 +208,47 @@ def _cmd_etl_ejecutar(args: argparse.Namespace) -> int:
                 f"  promovidas={fr['filas_promovidas']} "
                 f"sustituidas={fr['filas_sustituidas']} (borradas por singularidad antes de insertar)"
             )
+            for s in fr.get("salidas", []):
+                print(f"  salida '{s['nombre']}' ({s['filas']} filas): {s['fichero']}")
     if not resultado["ficheros"]:
         print("No hay ficheros que coincidan con el patrón.")
     return 1 if resultado["estado"] == "ERROR" else 0
+
+
+def _cmd_etl_salida(args: argparse.Namespace) -> int:
+    try:
+        definicion = cargas.cargar(args.carga)
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    declaradas = definicion.get("salidas", [])
+    if args.nombre:
+        declaradas = [s for s in declaradas if s["nombre"] == args.nombre]
+        if not declaradas:
+            print(f"ERROR: la carga '{args.carga}' no declara una salida '{args.nombre}'", file=sys.stderr)
+            return 1
+    if not declaradas:
+        print(f"La carga '{args.carga}' no declara salidas.")
+        return 0
+
+    con = db.conectar()
+    try:
+        ultima = con.execute(
+            "SELECT max(id) FROM _ejecuciones WHERE carga = ? AND estado = 'OK'",
+            [definicion["nombre"]],
+        ).fetchone()[0]
+        contexto = {"carga": definicion["nombre"], "ejecucion_id": ultima}
+        for salida in declaradas:
+            try:
+                resultado = salidas.generar(con, salida, contexto)
+            except Exception as exc:
+                print(f"ERROR en salida '{salida['nombre']}': {exc}", file=sys.stderr)
+                return 1
+            print(f"salida '{resultado['nombre']}' ({resultado['filas']} filas): {resultado['fichero']}")
+    finally:
+        con.close()
+    return 0
 
 
 def _cmd_etl_exportar(args: argparse.Namespace) -> int:
@@ -449,6 +488,9 @@ def main(argv=None) -> int:
     etl_sub.add_parser("estado", help="Últimas ejecuciones registradas")
     exportar_parser = etl_sub.add_parser("exportar", help="Exporta una vista de consumo a /export")
     exportar_parser.add_argument("vista")
+    salida_parser = etl_sub.add_parser("salida", help="Genera las salidas declaradas por una carga")
+    salida_parser.add_argument("carga")
+    salida_parser.add_argument("--nombre", default=None, help="Genera solo la salida con ese nombre")
 
     ticket_parser = subparsers.add_parser("ticket", help="CRUD de tickets de gasto")
     ticket_sub = ticket_parser.add_subparsers(dest="command", required=True)
@@ -536,6 +578,8 @@ def main(argv=None) -> int:
             return _cmd_etl_estado(args)
         if args.command == "exportar":
             return _cmd_etl_exportar(args)
+        if args.command == "salida":
+            return _cmd_etl_salida(args)
 
     if args.namespace == "ticket":
         if args.command == "crear":

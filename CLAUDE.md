@@ -30,7 +30,13 @@ esperar a que pregunte. No hace falta un tocho: 4-6 líneas con lo esencial:
   nombre.
 - Todo lo que sale del almacén para Excel/Power BI pasa por vistas de
   consumo (`*_consumo`) exportadas con `etl exportar <vista>` a
-  `/export/*.parquet` y `.csv`.
+  `/export/*.parquet` y `.csv`; y una carga puede declarar `salidas`
+  (ficheros xlsx/CSV/parquet desde un `SELECT` libre, con nombre por fecha)
+  que se generan solas al terminar.
+- Una carga puede declarar `validaciones`: un `SELECT` que, si devuelve
+  filas, corta la carga (`stop`) o deja aviso (`alarma`). Los mismos
+  invariantes puestos en `/catalogo/<tabla>.json` rigen también para las
+  escrituras del CLI.
 - Cada decisión de esquema no obvia queda registrada en la tabla
   `_decisiones` (consultable con `db consultar`), con el porqué.
 
@@ -56,6 +62,21 @@ en vez de listarlos todos en el chat.
 - DuckDB no soporta `ALTER TABLE ... DROP/ADD CONSTRAINT`: para cambiar un
   `CHECK` hay que recrear la tabla dentro de la migración (ver
   `006_ticket_concepto_otros.sql` como ejemplo).
+- **Nada de escribir volumen fila a fila.** DuckDB es columnar y degrada de
+  forma no lineal con `INSERT` por fila: medido, 1.000 filas por SQL tardan
+  ~13s frente a ~0,35s por 500.000 vía DataFrame. Usa
+  `motor_etl._insertar_bloque` o resuélvelo en SQL dentro del motor.
+- **No propongas índices para acelerar consultas** sin medir antes: se
+  comprobó sobre 497.383 filas que no aportan y llegan a empeorar el filtro
+  por texto (está en `_decisiones`, migración 011). DuckDB ya mantiene
+  zonemaps automáticos.
+- Las cargas de fichero no hacen upsert: declaran `campos_singularidad` y el
+  motor borra en bloque esas combinaciones antes de insertar. El upsert fila
+  a fila es solo para las acciones puntuales del CLI.
+- Las reglas de negocio (stops y alarmas) **las decide el usuario, no tú**:
+  propón candidatas a partir de lo que diga o de anomalías reales que veas al
+  perfilar, y confírmalas antes de instalarlas. Una alarma que salta en miles
+  de filas cada carga es ruido, no aviso.
 - Tras exportar (`etl exportar`), la conexión se cierra explícitamente para
   no dejar `almacen.duckdb` bloqueado — no abras una conexión interactiva
   larga contra él si luego vas a exportar o si alguien va a abrir los

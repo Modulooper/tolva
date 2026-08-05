@@ -97,6 +97,7 @@ cliente concreto).
 python -m motor.cli proceso analizar --campo <nombre-propuesto> [--valores v1,v2,...] [--umbral 0.5] [--json]
 
 python -m motor.cli etl exportar <vista>
+python -m motor.cli etl salida <carga> [--nombre <salida>]
 ```
 
 `<carga>` es el nombre de un fichero en `/cargas/<nombre>.json` (o una ruta
@@ -146,6 +147,43 @@ La promoción desde la hall no saca los datos del motor: el `DELETE` y el
 DuckDB es columnar y degrada de forma no lineal con SQL fila a fila: medido,
 1.000 filas por SQL tardan ~13s, mientras que 500.000 vía DataFrame tardan
 ~0,35s.
+
+## Salidas (ficheros de resultado)
+
+Una carga puede declarar `salidas`: ficheros generados a partir de un `SELECT`
+libre sobre cualquier tabla o vista, con el nombre compuesto. Se generan
+automáticamente al terminar una carga correcta (nunca si un stop la abortó), o
+a mano con `etl salida <carga> [--nombre <salida>]`.
+
+```json
+"salidas": [
+  {
+    "nombre": "resumen_delegacion",
+    "fichero": "%Y%m%d_previ_ok.xlsx",
+    "sql": "SELECT deleg_nombre, anio, mes, count(*) AS lineas, sum(coste_ventilado) AS coste FROM previ_transporte GROUP BY 1,2,3",
+    "carpeta": "export"
+  }
+]
+```
+
+- **Formato** por extensión: `.xlsx`, `.csv` o `.parquet`. Siempre con fila de
+  cabecera.
+- **Nombre**: admite marcas de fecha de strftime (`%Y%m%d` → `20260805`,
+  `%Y%m` → `202608`) y campos entre llaves de la ejecución: `{carga}` y
+  `{ejecucion_id}`. Ej.: `"%Y%m%d_previ_detalle_{ejecucion_id}.csv"` →
+  `20260805_previ_detalle_11.csv`.
+- **`carpeta`** es opcional; por defecto `/export`.
+
+Se generan con la carga ya confirmada: escribir un fichero no puede deshacer
+datos correctos, y el `SELECT` ve ya lo promovido.
+
+A diferencia de `etl exportar <vista>`, que vuelca una vista de consumo a un
+nombre fijo en parquet y CSV a la vez, aquí el SQL y el nombre son libres.
+
+El xlsx lo escribe la extensión `excel` de DuckDB dentro del motor (83.440
+filas en 0,6 s). Si no estuviera disponible —requiere red la primera vez que se
+instala— se recurre a openpyxl, que ya es dependencia pero pasa las filas por
+Python.
 
 ## Stops y alarmas
 
@@ -389,3 +427,9 @@ los ficheros exportados desde otra herramienta.
   un stop revierte la operación. Acciones declarativas por momento del ciclo
   de vida (`antes`, `tras_validar`, `al_fallar`) y `ejecucion_id` en las
   tablas de carga para poder deshacer o inspeccionar por proceso de carga.
+- Hito 13: salidas (`motor/salidas.py`, comando `etl salida`). Una carga puede
+  declarar ficheros de resultado a partir de un `SELECT` libre, en xlsx, CSV o
+  parquet, con nombre compuesto por fecha (`%Y%m%d`) y datos de la ejecución
+  (`{carga}`, `{ejecucion_id}`). Se generan al terminar una carga correcta, con
+  los datos ya confirmados. El xlsx lo escribe la extensión `excel` de DuckDB
+  (83.440 filas en 0,6 s), con respaldo en openpyxl si no está disponible.

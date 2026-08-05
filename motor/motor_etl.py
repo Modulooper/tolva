@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import cargas, db, operaciones, validaciones
+from . import cargas, db, operaciones, salidas, validaciones
 
 
 def _hash_fichero(ruta: Path) -> str:
@@ -374,10 +374,17 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
     if resultado.columnas_extra:
         print(f"AVISO: columnas no declaradas en '{ruta.name}': {sorted(resultado.columnas_extra)}")
 
+    # Las salidas se generan con la carga ya confirmada: escribir ficheros no
+    # debe poder deshacer datos correctos, y el SELECT debe ver lo promovido.
+    ficheros_salida = salidas.generar_todas(
+        con, definicion, {"carga": nombre_carga, "ejecucion_id": ejecucion_id}
+    )
+
     return {
         "fichero": ruta.name,
         "estado": "OK",
         "ejecucion_id": ejecucion_id,
+        "salidas": ficheros_salida,
         "filas_leidas": resultado.filas_leidas,
         "filas_ok": len(resultado.validas),
         "filas_rechazadas": len(resultado.rechazadas),
