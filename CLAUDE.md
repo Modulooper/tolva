@@ -16,29 +16,45 @@ listar`.
 Justo después de dejarlo instalado y verificado — o al arrancar en un repo
 que ya estaba instalado pero es la primera vez que hablas con este usuario —
 **explica brevemente en el chat cómo se trabaja con este sistema**, sin
-esperar a que pregunte. No hace falta un tocho: 4-6 líneas con lo esencial:
+esperar a que pregunte. Esto es lo esencial, contado como a alguien que
+todavía no sabe qué puede pedir:
 
-- Esto no es "corre estos comandos": se le habla a la IA en lenguaje natural
-  y ella decide si hace falta migración, CRUD o carga de fichero.
-- Hay dos formas de meter datos: **cargas ETL recurrentes** desde un fichero
-  de muestra (extractos bancarios, exports...) vía el skill `definir-carga`,
-  y **procesos de negocio** (tablas tipo `ticket`, `idea`) con CRUD directo
-  vía el skill `crear-proceso`, sin fichero de por medio.
-- Antes de crear una tabla nueva, el flujo comprueba solapamiento contra el
-  catálogo semántico (`/catalogo/*.json`) y contra los datos reales
-  (`proceso analizar`), para no duplicar una entidad que ya existe con otro
-  nombre.
-- Todo lo que sale del almacén para Excel/Power BI pasa por vistas de
-  consumo (`*_consumo`) exportadas con `etl exportar <vista>` a
-  `/export/*.parquet` y `.csv`; y una carga puede declarar `salidas`
-  (ficheros xlsx/CSV/parquet desde un `SELECT` libre, con nombre por fecha)
-  que se generan solas al terminar.
-- Una carga puede declarar `validaciones`: un `SELECT` que, si devuelve
-  filas, corta la carga (`stop`) o deja aviso (`alarma`). Los mismos
-  invariantes puestos en `/catalogo/<tabla>.json` rigen también para las
-  escrituras del CLI.
-- Cada decisión de esquema no obvia queda registrada en la tabla
-  `_decisiones` (consultable con `db consultar`), con el porqué.
+- **Aquí no se ejecutan comandos, se habla.** El usuario cuenta lo que
+  necesita y tú decides si eso pide migración, CRUD o carga de fichero. Los
+  comandos existen (README) pero son el suelo, no la interfaz.
+- **Dos puertas de entrada**: un **fichero que se repite** (extracto, export
+  mensual) es una *carga* — skill `definir-carga`; algo que el usuario
+  teclea (gastos, ideas, clientes) es un *proceso de negocio* con su CRUD —
+  skill `crear-proceso`, sin fichero de por medio.
+- **Nada se crea a ciegas**: antes de una tabla nueva se comprueba
+  solapamiento contra el catálogo (`/catalogo/*.json`) y contra los datos
+  reales (`proceso analizar`), para no acabar con tres nombres para lo
+  mismo. El esquema se propone como borrador (`etl esquema`) marcando lo que
+  la inferencia no puede decidir — un mes `"03"` parece número y hay que
+  guardarlo como texto o pierde el cero — y el usuario aprueba.
+- **Al cargar, lo importante es qué sustituye cada fichero**: si al volver a
+  subir el informe corregido debe reemplazar solo ese mes, la foto entera, o
+  añadir sin borrar (`campos_singularidad`). Se declara una vez.
+- **Se pueden encadenar transformaciones SQL dentro de la propia carga**, no
+  solo comprobaciones: columnas calculadas, joins para traer datos de otra
+  tabla, filtrar filas que no interesan, normalizar valores. Van sobre la
+  tabla *hall* (la de trabajo, que se vacía y recarga en cada ejecución) vía
+  `transformacion_sql`, y lo que salga de ahí es lo que se guarda. Y hay
+  `acciones` SQL en momentos del ciclo: antes de cargar, tras superar las
+  validaciones, o cuando algo falla.
+- **Stops y alarmas**: un `SELECT` que, si devuelve filas, corta la carga
+  (`stop`, diciendo qué filas fallan) o solo avisa (`alarma`). Los mismos
+  invariantes en `/catalogo/<tabla>.json` rigen también para el CRUD del CLI.
+- **Para sacar datos**, vistas de consumo (`*_consumo`) exportadas con
+  `etl exportar` para enlazar desde Excel/Power BI, y `salidas`: ficheros
+  xlsx/CSV/parquet desde un `SELECT` libre, con nombre por fecha
+  (`20260805_previ_ok.xlsx`), generados solos al terminar la carga.
+- **Todo lo decidido queda escrito** en `_decisiones` con su porqué, para que
+  dentro de seis meses se sepa por qué `mes` es texto.
+
+Cierra invitándole a empezar por lo más tonto que tenga a mano: un fichero
+que abre cada mes, o una lista que lleva en un Excel suelto. En una
+conversación queda montado y de paso ve el flujo entero.
 
 No repitas el README entero — para el detalle de cada comando, remite a él
 en vez de listarlos todos en el chat.
