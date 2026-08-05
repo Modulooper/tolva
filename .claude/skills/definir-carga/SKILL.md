@@ -72,6 +72,22 @@ Para toda columna con `tipo_aparente: "fecha (candidato date_format)"`:
   (época `epoch_excel: "1900"` por defecto, o `"1904"` si el usuario confirma
   que el fichero viene de Excel para Mac).
 
+## 4b. Si la tabla destino no existe todavía
+
+`python -m motor.cli etl esquema <fichero> --tabla <nombre> [--json]` da un
+borrador de `CREATE TABLE` y de entrada de catálogo a partir del perfil, con
+las columnas dudosas marcadas. **Es un punto de partida, no el esquema
+final**: la inferencia acierta el tipo de almacenamiento y falla la
+semántica (un mes "03" se infiere `integer` y pierde el cero; un
+`20260320003000` se infiere `integer` y es una fecha; un código numérico es
+un identificador aunque parezca número). Repasa cada aviso con el usuario
+antes de convertirlo en migración, y sigue pasando por `crear-proceso` para
+la comprobación de solapamiento.
+
+Si usaste `--limite` para iterar rápido, vuelve a perfilar sin él antes de
+fijar el esquema: con muestra, el tipo no está garantizado para el resto del
+fichero.
+
 ## 5. Números en formato no estándar
 
 Si `tipo_aparente` marca `double (formato_numerico: es)`, añade

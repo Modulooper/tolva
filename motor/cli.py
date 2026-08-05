@@ -12,6 +12,7 @@ from . import (
     cargas,
     consultas,
     db,
+    esquema,
     export,
     ideas,
     motor_etl,
@@ -100,6 +101,63 @@ def _cmd_db_uso(args: argparse.Namespace) -> int:
     return 0
 
 
+def _avisar_muestreo(resultado: dict) -> None:
+    if resultado.get("muestreado"):
+        print(
+            f"AVISO: MUESTRA de {resultado['filas_leidas']} filas; el fichero tiene más.\n"
+            "  Los tipos inferidos NO están garantizados para el resto: basta un decimal\n"
+            "  con coma o un valor no numérico más allá de la muestra para que el tipo real\n"
+            "  sea otro. Repite sin --limite antes de dar el esquema por bueno."
+        )
+
+
+def _cmd_etl_esquema(args: argparse.Namespace) -> int:
+    try:
+        perfilado = perfil.perfilar(
+            args.fichero,
+            formato=args.formato,
+            delimitador=args.delimitador,
+            encoding=args.encoding,
+            hoja=args.hoja,
+            fila_cabecera=args.fila_cabecera,
+            limite=args.limite,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    propuesta = esquema.proponer(perfilado, args.tabla)
+
+    if args.json:
+        print(json.dumps(propuesta, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Borrador de esquema para '{args.tabla}' ({propuesta['filas_analizadas']} filas analizadas)")
+    _avisar_muestreo(perfilado)
+    print("\n-- BORRADOR, revisa los avisos antes de convertirlo en migración --")
+    print(propuesta["ddl"])
+
+    dudosas = [c for c in propuesta["columnas"] if c["avisos"]]
+    if dudosas:
+        print("\nColumnas que necesitan decisión tuya:")
+        for c in dudosas:
+            print(f"\n  {c['nombre']}  (origen: {c['origen']}, inferido {c['tipo']})")
+            print(f"    muestra: {c['muestra']}")
+            for aviso in c["avisos"]:
+                print(f"    - {aviso}")
+
+    sin_nulos = [c["nombre"] for c in propuesta["columnas"] if c["notas"]]
+    if sin_nulos:
+        print(f"\nSin nulos en lo analizado (candidatas a NOT NULL): {', '.join(sin_nulos)}")
+
+    print(
+        "\nLa inferencia acierta el tipo de almacenamiento, no la semántica: "
+        "revisa identificadores,\nceros a la izquierda y fechas disfrazadas de número. "
+        "Con --json sale también la entrada\nde catálogo para /catalogo/<tabla>.json."
+    )
+    return 0
+
+
 def _cmd_etl_definir(args: argparse.Namespace) -> int:
     try:
         resultado = perfil.perfilar(
@@ -109,6 +167,7 @@ def _cmd_etl_definir(args: argparse.Namespace) -> int:
             encoding=args.encoding,
             hoja=args.hoja,
             fila_cabecera=args.fila_cabecera,
+            limite=args.limite,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -119,6 +178,7 @@ def _cmd_etl_definir(args: argparse.Namespace) -> int:
         return 0
 
     print(f"Fichero: {resultado['fichero']}  formato={resultado['formato']}  filas_leidas={resultado['filas_leidas']}")
+    _avisar_muestreo(resultado)
     for c in resultado["columnas"]:
         print(f"\n- {c['columna']}")
         print(f"    tipo aparente: {c['tipo_aparente']}")
@@ -477,7 +537,20 @@ def main(argv=None) -> int:
     definir_parser.add_argument("--encoding", default="utf-8-sig")
     definir_parser.add_argument("--hoja", default=None)
     definir_parser.add_argument("--fila-cabecera", type=int, default=1, dest="fila_cabecera")
+    definir_parser.add_argument("--limite", type=int, default=None,
+                                help="Analiza solo las primeras N filas (mas rapido, tipos no garantizados)")
     definir_parser.add_argument("--json", action="store_true", help="Salida en JSON")
+
+    esquema_parser = etl_sub.add_parser("esquema", help="Borrador de CREATE TABLE a partir del perfil")
+    esquema_parser.add_argument("fichero")
+    esquema_parser.add_argument("--tabla", required=True)
+    esquema_parser.add_argument("--formato", choices=["csv", "excel"], default=None)
+    esquema_parser.add_argument("--delimitador", default=",")
+    esquema_parser.add_argument("--encoding", default="utf-8-sig")
+    esquema_parser.add_argument("--hoja", default=None)
+    esquema_parser.add_argument("--fila-cabecera", type=int, default=1, dest="fila_cabecera")
+    esquema_parser.add_argument("--limite", type=int, default=None)
+    esquema_parser.add_argument("--json", action="store_true")
     validar_parser = etl_sub.add_parser("validar", help="Valida una definición de carga")
     validar_parser.add_argument("carga")
     dry_run_parser = etl_sub.add_parser("dry-run", help="Ejecuta sin escribir en el almacén")
@@ -568,6 +641,8 @@ def main(argv=None) -> int:
     if args.namespace == "etl":
         if args.command == "definir":
             return _cmd_etl_definir(args)
+        if args.command == "esquema":
+            return _cmd_etl_esquema(args)
         if args.command == "validar":
             return _cmd_etl_validar(args)
         if args.command == "dry-run":

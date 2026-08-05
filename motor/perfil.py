@@ -58,17 +58,23 @@ def _tipo_aparente(valores: list) -> str:
     return "varchar"
 
 
-def _leer_muestra_csv(ruta: Path, delimitador: str, fila_cabecera: int, encoding: str):
+def _leer_muestra_csv(ruta: Path, delimitador: str, fila_cabecera: int, encoding: str, limite=None):
+    """Con `limite`, deja de leer al alcanzarlo: muestrear no debe costar lo
+    mismo que leer el fichero entero. Devuelve (cabecera, datos, hay_mas)."""
+    tope = None if limite is None else fila_cabecera + limite
+    filas = []
     with ruta.open(encoding=encoding, newline="") as f:
-        filas = list(csv.reader(f, delimiter=delimitador))
+        for i, fila in enumerate(csv.reader(f, delimiter=delimitador), start=1):
+            filas.append(fila)
+            if tope is not None and i > tope:
+                break
+    hay_mas = tope is not None and len(filas) > tope
     if len(filas) < fila_cabecera:
         raise ValueError(f"el fichero tiene {len(filas)} filas, menos que fila_cabecera={fila_cabecera}")
-    cabecera = filas[fila_cabecera - 1]
-    datos = filas[fila_cabecera:]
-    return cabecera, datos
+    return filas[fila_cabecera - 1], filas[fila_cabecera:tope], hay_mas
 
 
-def _leer_muestra_excel(ruta: Path, hoja, fila_cabecera: int):
+def _leer_muestra_excel(ruta: Path, hoja, fila_cabecera: int, limite=None):
     import openpyxl
 
     wb = openpyxl.load_workbook(ruta, data_only=True, read_only=True)
@@ -78,12 +84,18 @@ def _leer_muestra_excel(ruta: Path, hoja, fila_cabecera: int):
         ws = wb.worksheets[hoja]
     else:
         ws = wb.active
-    filas = list(ws.iter_rows(values_only=True))
+
+    tope = None if limite is None else fila_cabecera + limite
+    filas = []
+    for i, fila in enumerate(ws.iter_rows(values_only=True), start=1):
+        filas.append(fila)
+        if tope is not None and i > tope:
+            break
+    hay_mas = tope is not None and len(filas) > tope
     if len(filas) < fila_cabecera:
         raise ValueError(f"el fichero tiene {len(filas)} filas, menos que fila_cabecera={fila_cabecera}")
     cabecera = [str(c) if c is not None else "" for c in filas[fila_cabecera - 1]]
-    datos = filas[fila_cabecera:]
-    return cabecera, datos
+    return cabecera, filas[fila_cabecera:tope], hay_mas
 
 
 def perfilar(
@@ -93,7 +105,15 @@ def perfilar(
     encoding: str = "utf-8-sig",
     hoja=None,
     fila_cabecera: int = 1,
+    limite: int = None,
 ) -> dict:
+    """Perfila el fichero. Con `limite`, analiza solo las primeras N filas.
+
+    Muestrear es más rápido, pero el tipo inferido deja de estar garantizado
+    para todo el fichero: basta un decimal con coma o un valor no numérico más
+    allá de la muestra para que el tipo real sea otro. El resultado marca
+    `muestreado` para que quien lo lea lo sepa.
+    """
     ruta = Path(ruta)
     if not ruta.exists():
         raise FileNotFoundError(f"no existe el fichero: {ruta}")
@@ -102,9 +122,9 @@ def perfilar(
         formato = "excel" if ruta.suffix.lower() in (".xlsx", ".xlsm", ".xls") else "csv"
 
     if formato == "csv":
-        cabecera, filas = _leer_muestra_csv(ruta, delimitador, fila_cabecera, encoding)
+        cabecera, filas, muestreado = _leer_muestra_csv(ruta, delimitador, fila_cabecera, encoding, limite)
     else:
-        cabecera, filas = _leer_muestra_excel(ruta, hoja, fila_cabecera)
+        cabecera, filas, muestreado = _leer_muestra_excel(ruta, hoja, fila_cabecera, limite)
 
     entidades = [catalogo.cargar_entidad(n) for n in catalogo.listar_entidades()]
 
@@ -133,4 +153,10 @@ def perfilar(
             }
         )
 
-    return {"fichero": str(ruta), "formato": formato, "filas_leidas": len(filas), "columnas": columnas}
+    return {
+        "fichero": str(ruta),
+        "formato": formato,
+        "filas_leidas": len(filas),
+        "muestreado": muestreado,
+        "columnas": columnas,
+    }

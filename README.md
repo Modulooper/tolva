@@ -71,7 +71,8 @@ python -m motor.cli db migrar
 python -m motor.cli db consultar "select * from cliente"
 python -m motor.cli db uso [--minimo 3]
 
-python -m motor.cli etl definir <fichero-muestra> [--formato --delimitador --encoding --hoja --fila-cabecera] [--json]
+python -m motor.cli etl definir <fichero-muestra> [--formato --delimitador --encoding --hoja --fila-cabecera] [--limite N] [--json]
+python -m motor.cli etl esquema <fichero-muestra> --tabla <nombre> [--limite N] [--json]
 python -m motor.cli etl validar <carga>
 python -m motor.cli etl dry-run <carga>
 python -m motor.cli etl ejecutar <carga> [--forzar]
@@ -147,6 +148,42 @@ La promoción desde la hall no saca los datos del motor: el `DELETE` y el
 DuckDB es columnar y degrada de forma no lineal con SQL fila a fila: medido,
 1.000 filas por SQL tardan ~13s, mientras que 500.000 vía DataFrame tardan
 ~0,35s.
+
+## Definir la tabla: `etl esquema`
+
+`etl definir` perfila el fichero (tipo aparente, nulos, cardinalidad, muestra
+de valores, sinónimos del catálogo) y ya distingue decimales con punto de
+decimales con coma (`double (formato_numerico: es)`) y candidatos a fecha.
+`etl esquema` traduce ese perfil a un **borrador** de `CREATE TABLE` y de
+entrada de catálogo (`--json`), con los campos de sistema ya puestos.
+
+Es un borrador, no una decisión: la inferencia acierta el tipo de
+almacenamiento y **falla la semántica**, así que cada columna dudosa sale
+marcada. Sobre un fichero real:
+
+```
+    descarga_comienzo INTEGER,  -- OJO: número de 14 dígitos: ¿es fecha y hora AAAAMMDDHHMMSS?
+    mes INTEGER,                -- OJO: parece integer pero hay ceros a la izquierda (03): VARCHAR o se pierden
+    codigo_ut INTEGER,          -- OJO: el nombre sugiere identificador: valorar VARCHAR (no se opera con él)
+```
+
+Las tres son correctas como tipo y equivocadas como decisión: `mes` guardado
+como `INTEGER` pierde el cero de `"03"`, y `descarga_comienzo` es una fecha
+disfrazada de número. Ningún volumen de filas analizadas arregla eso — por eso
+se marcan en vez de esconderlas tras un tipo plausible.
+
+La detección de fecha compacta valida los componentes, no solo la longitud: un
+identificador como `86169897` tiene 8 dígitos pero no puede ser una fecha (mes
+16, día 98), así que no se marca como tal.
+
+### Muestreo
+
+`--limite N` analiza solo las primeras N filas y **deja de leer ahí**: sobre un
+xlsx de 44,8 MB, 200 filas tardan 2,7 s frente a 37 s leyéndolo entero. A
+cambio, el tipo inferido deja de estar garantizado —basta un decimal con coma
+más allá de la muestra para que el tipo real sea otro—, así que la salida lo
+avisa de forma explícita. Úsalo para iterar rápido y confirma sin `--limite`
+antes de dar el esquema por bueno.
 
 ## Salidas (ficheros de resultado)
 
@@ -433,3 +470,9 @@ los ficheros exportados desde otra herramienta.
   (`{carga}`, `{ejecucion_id}`). Se generan al terminar una carga correcta, con
   los datos ya confirmados. El xlsx lo escribe la extensión `excel` de DuckDB
   (83.440 filas en 0,6 s), con respaldo en openpyxl si no está disponible.
+- Hito 14: borrador de esquema (`motor/esquema.py`, comando `etl esquema`) a
+  partir del perfil del fichero: `CREATE TABLE` y entrada de catálogo con las
+  columnas dudosas marcadas (identificadores, ceros a la izquierda, fechas
+  disfrazadas de número). `--limite N` en `definir` y `esquema` muestrea
+  parando la lectura (2,7 s frente a 37 s en el xlsx de previsiones),
+  avisando de que el tipo inferido ya no está garantizado.
