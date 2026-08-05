@@ -1,5 +1,5 @@
 """CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado/exportar |
-ticket crear/listar/editar/borrar | proceso analizar."""
+ticket crear/listar/editar/borrar | idea crear/listar/editar/borrar | proceso analizar."""
 
 import argparse
 import json
@@ -8,7 +8,7 @@ from datetime import date
 
 import duckdb
 
-from . import cargas, db, export, motor_etl, perfil, solapamiento, tickets
+from . import cargas, db, export, ideas, motor_etl, perfil, solapamiento, tickets
 
 
 def _imprimir_tabla(columnas, filas) -> None:
@@ -221,6 +221,66 @@ def _cmd_ticket_borrar(args: argparse.Namespace) -> int:
         con.close()
 
 
+def _cmd_idea_crear(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            idea_id = ideas.crear(
+                con, args.persona, args.texto, cliente=args.cliente, estado=args.estado, fecha=args.fecha
+            )
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(f"Idea creada: {idea_id}")
+        return 0
+    finally:
+        con.close()
+
+
+def _cmd_idea_listar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        columnas, filas = ideas.listar(
+            con, persona=args.persona, cliente=args.cliente, estado=args.estado,
+            desde=args.desde, hasta=args.hasta,
+        )
+    finally:
+        con.close()
+    _imprimir_tabla(columnas, filas)
+    return 0
+
+
+def _cmd_idea_editar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            ideas.editar(
+                con, args.id, texto=args.texto, cliente=args.cliente,
+                estado=args.estado, fecha=args.fecha,
+            )
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print("Idea actualizada.")
+        return 0
+    finally:
+        con.close()
+
+
+def _cmd_idea_borrar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            ideas.borrar(con, args.id)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print("Idea borrada.")
+        return 0
+    finally:
+        con.close()
+
+
 def _cmd_proceso_analizar(args: argparse.Namespace) -> int:
     valores = [v.strip() for v in args.valores.split(",")] if args.valores else []
 
@@ -325,6 +385,33 @@ def main(argv=None) -> int:
     borrar_parser = ticket_sub.add_parser("borrar", help="Borra un ticket")
     borrar_parser.add_argument("id")
 
+    idea_parser = subparsers.add_parser("idea", help="CRUD de ideas sueltas")
+    idea_sub = idea_parser.add_subparsers(dest="command", required=True)
+
+    idea_crear_parser = idea_sub.add_parser("crear", help="Crea una idea")
+    idea_crear_parser.add_argument("--persona", required=True)
+    idea_crear_parser.add_argument("--texto", required=True)
+    idea_crear_parser.add_argument("--cliente", default=None)
+    idea_crear_parser.add_argument("--estado", default=None, choices=list(ideas.ESTADOS_VALIDOS))
+    idea_crear_parser.add_argument("--fecha", default=None, type=date.fromisoformat)
+
+    idea_listar_parser = idea_sub.add_parser("listar", help="Lista ideas")
+    idea_listar_parser.add_argument("--persona", default=None)
+    idea_listar_parser.add_argument("--cliente", default=None)
+    idea_listar_parser.add_argument("--estado", default=None, choices=list(ideas.ESTADOS_VALIDOS))
+    idea_listar_parser.add_argument("--desde", default=None, type=date.fromisoformat)
+    idea_listar_parser.add_argument("--hasta", default=None, type=date.fromisoformat)
+
+    idea_editar_parser = idea_sub.add_parser("editar", help="Edita una idea")
+    idea_editar_parser.add_argument("id")
+    idea_editar_parser.add_argument("--texto", default=None)
+    idea_editar_parser.add_argument("--cliente", default=None)
+    idea_editar_parser.add_argument("--estado", default=None, choices=list(ideas.ESTADOS_VALIDOS))
+    idea_editar_parser.add_argument("--fecha", default=None, type=date.fromisoformat)
+
+    idea_borrar_parser = idea_sub.add_parser("borrar", help="Borra una idea")
+    idea_borrar_parser.add_argument("id")
+
     proceso_parser = subparsers.add_parser("proceso", help="Análisis de solapamiento para entidades nuevas")
     proceso_sub = proceso_parser.add_subparsers(dest="command", required=True)
     analizar_parser = proceso_sub.add_parser("analizar", help="Comprueba solapamiento de un campo propuesto")
@@ -364,6 +451,16 @@ def main(argv=None) -> int:
             return _cmd_ticket_editar(args)
         if args.command == "borrar":
             return _cmd_ticket_borrar(args)
+
+    if args.namespace == "idea":
+        if args.command == "crear":
+            return _cmd_idea_crear(args)
+        if args.command == "listar":
+            return _cmd_idea_listar(args)
+        if args.command == "editar":
+            return _cmd_idea_editar(args)
+        if args.command == "borrar":
+            return _cmd_idea_borrar(args)
 
     if args.namespace == "proceso":
         if args.command == "analizar":

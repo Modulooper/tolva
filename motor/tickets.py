@@ -2,7 +2,7 @@
 
 from datetime import date
 
-CONCEPTOS_VALIDOS = ("viajes", "hoteles", "gasolina")
+CONCEPTOS_VALIDOS = ("viajes", "hoteles", "gasolina", "otros")
 
 
 def _resolver(con, tabla: str, nombre: str) -> str:
