@@ -5,9 +5,10 @@ conexión abierta. La conexión se cierra explícitamente al terminar el
 export para que Excel/Power BI puedan leer los ficheros sin conflicto.
 """
 
+import time
 from pathlib import Path
 
-from . import db
+from . import consultas, db
 
 ROOT = Path(__file__).resolve().parent.parent
 EXPORT_DIR = ROOT / "export"
@@ -34,10 +35,19 @@ def exportar(nombre_vista: str, db_path=None) -> dict:
         ruta_parquet = EXPORT_DIR / f"{nombre_vista}.parquet"
         ruta_csv = EXPORT_DIR / f"{nombre_vista}.csv"
 
+        inicio = time.perf_counter()
         con.execute(f"COPY (SELECT * FROM {nombre_vista}) TO '{ruta_parquet.as_posix()}' (FORMAT PARQUET)")
         con.execute(f"COPY (SELECT * FROM {nombre_vista}) TO '{ruta_csv.as_posix()}' (FORMAT CSV, HEADER)")
 
         filas = con.execute(f"SELECT count(*) FROM {nombre_vista}").fetchone()[0]
+        consultas.registrar(
+            con,
+            f"SELECT * FROM {nombre_vista}",
+            "export",
+            objeto=nombre_vista,
+            filas=filas,
+            duracion=time.perf_counter() - inicio,
+        )
     finally:
         # Cierre explícito: mientras esta conexión viva, DuckDB mantiene el
         # fichero almacen.duckdb bloqueado en escritura, lo que impediría a

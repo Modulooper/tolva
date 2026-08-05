@@ -8,7 +8,7 @@ from datetime import date
 
 import duckdb
 
-from . import cargas, db, export, ideas, motor_etl, perfil, solapamiento, tickets
+from . import cargas, consultas, db, export, ideas, motor_etl, perfil, solapamiento, tickets
 
 
 def _imprimir_tabla(columnas, filas) -> None:
@@ -48,6 +48,43 @@ def _cmd_db_consultar(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     _imprimir_tabla(columnas, filas)
+    return 0
+
+
+def _cmd_db_uso(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        informe = consultas.analizar_uso(con, minimo_repeticiones=args.minimo)
+    finally:
+        con.close()
+
+    print(f"Consultas registradas (OK): {informe['total_registradas']}")
+    if informe["errores"]:
+        print(f"Consultas con error: {informe['errores']}")
+
+    print("\nUso por objeto:")
+    if informe["uso_por_objeto"]:
+        for objeto, veces in informe["uso_por_objeto"]:
+            print(f"  {objeto}: {veces}")
+    else:
+        print("  (todavía no hay consultas registradas)")
+
+    if informe["sin_uso"]:
+        print("\nSin uso registrado (candidatas a revisar):")
+        for objeto in informe["sin_uso"]:
+            print(f"  {objeto}")
+
+    if informe["recurrentes"]:
+        print(f"\nConsultas recurrentes (>= {args.minimo} veces) — candidatas a vista de consumo:")
+        for r in informe["recurrentes"]:
+            print(f"  [{r['tablas']}] x{r['veces']}")
+            print(f"    ej: {r['ejemplo'][:110]}")
+
+    if informe["lentas"]:
+        print("\nMás lentas:")
+        for sql, origen, objeto, filas, duracion in informe["lentas"]:
+            etiqueta = objeto or sql[:60]
+            print(f"  {duracion*1000:.1f} ms  ({origen}, {filas} filas)  {etiqueta}")
     return 0
 
 
@@ -339,6 +376,8 @@ def main(argv=None) -> int:
     db_sub.add_parser("migrar", help="Aplica migraciones pendientes")
     consultar_parser = db_sub.add_parser("consultar", help="Ejecuta SQL y muestra el resultado")
     consultar_parser.add_argument("sql")
+    uso_parser = db_sub.add_parser("uso", help="Uso real del almacén según las consultas registradas")
+    uso_parser.add_argument("--minimo", type=int, default=3, help="Repeticiones para considerar recurrente")
 
     etl_parser = subparsers.add_parser("etl", help="Operaciones sobre cargas ETL")
     etl_sub = etl_parser.add_subparsers(dest="command", required=True)
@@ -431,6 +470,8 @@ def main(argv=None) -> int:
             return _cmd_db_migrar(args)
         if args.command == "consultar":
             return _cmd_db_consultar(args)
+        if args.command == "uso":
+            return _cmd_db_uso(args)
 
     if args.namespace == "etl":
         if args.command == "definir":

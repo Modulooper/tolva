@@ -1,6 +1,7 @@
 """Conexión al almacén DuckDB y runner de migraciones."""
 
 import hashlib
+import time
 from pathlib import Path
 
 import duckdb
@@ -68,12 +69,26 @@ def migrar(db_path: Path = DB_PATH, migraciones_dir: Path = MIGRACIONES_DIR) -> 
 
 
 def consultar(sql: str, db_path: Path = DB_PATH):
-    """Ejecuta una consulta SQL. Devuelve (columnas, filas)."""
+    """Ejecuta una consulta SQL. Devuelve (columnas, filas). Queda registrada
+    en `_consultas` (ver `motor/consultas.py`)."""
+    from . import consultas
+
     con = conectar(db_path)
+    inicio = time.perf_counter()
     try:
-        cursor = con.execute(sql)
-        columnas = [d[0] for d in cursor.description] if cursor.description else []
-        filas = cursor.fetchall()
+        try:
+            cursor = con.execute(sql)
+            columnas = [d[0] for d in cursor.description] if cursor.description else []
+            filas = cursor.fetchall()
+        except Exception as exc:
+            consultas.registrar(
+                con, sql, "consulta", duracion=time.perf_counter() - inicio,
+                estado="ERROR", error=str(exc),
+            )
+            raise
+        consultas.registrar(
+            con, sql, "consulta", filas=len(filas), duracion=time.perf_counter() - inicio
+        )
         return columnas, filas
     finally:
         con.close()

@@ -69,6 +69,7 @@ pip install -r requirements.txt
 
 python -m motor.cli db migrar
 python -m motor.cli db consultar "select * from cliente"
+python -m motor.cli db uso [--minimo 3]
 
 python -m motor.cli etl definir <fichero-muestra> [--formato --delimitador --encoding --hoja --fila-cabecera] [--json]
 python -m motor.cli etl validar <carga>
@@ -145,6 +146,33 @@ La promoción desde la hall no saca los datos del motor: el `DELETE` y el
 DuckDB es columnar y degrada de forma no lineal con SQL fila a fila: medido,
 1.000 filas por SQL tardan ~13s, mientras que 500.000 vía DataFrame tardan
 ~0,35s.
+
+## Registro de consultas y uso real
+
+Toda consulta conversacional (`db consultar`) y toda extracción
+(`etl exportar`) queda registrada en la tabla de sistema `_consultas` con su
+duración, filas devueltas, usuario y si falló. `db uso` lo resume:
+
+- **Uso por objeto**: qué tablas y vistas se consultan de verdad.
+- **Sin uso registrado**: lo que no toca nadie (candidato a revisar o
+  eliminar).
+- **Consultas recurrentes**: si preguntas repetidamente por las mismas
+  tablas, esa consulta es candidata a convertirse en vista `*_consumo` con su
+  export, en vez de reescribirla cada vez.
+- **Más lentas**: para detectar degradación real con datos, no por intuición.
+
+Las tablas que referencia cada consulta se extraen del AST que devuelve el
+propio DuckDB (`json_serialize_sql`), no con expresiones regulares — igual
+que el parseo de fechas, por evidencia y no por adivinación. `db uso` no se
+registra a sí mismo.
+
+**No propone índices, y es deliberado.** Medido sobre `previ_transporte`
+(497.383 filas): un índice deja igual la consulta de punto (0,3 ms) y el
+agregado (5,1 ms), y **empeora** el filtro por texto (1,8 ms → 4,4 ms).
+DuckDB es columnar y mantiene *zonemaps* automáticos en todas las columnas,
+así que el escaneo ya es rápido; los índices ART sirven para lookups muy
+selectivos y para restricciones `UNIQUE`, y penalizan la escritura — mal
+negocio en tablas que se recargan enteras en cada carga.
 
 ## Vocabulario de operaciones ETL
 
@@ -275,3 +303,10 @@ los ficheros exportados desde otra herramienta.
   22s, y reejecutarla deja 497.383 filas (sustituye, no duplica).
   `movimientos_banco` se migró al mismo modelo (`campos_singularidad` = la
   antigua clave de upsert) y sigue sin duplicar.
+- Hito 11: registro de consultas (`migraciones/011_consultas.sql`,
+  `motor/consultas.py`, comando `db uso`). `db consultar` y `etl exportar`
+  dejan traza en `_consultas`; el análisis extrae las tablas referenciadas
+  del AST de DuckDB (`json_serialize_sql`) e informa de uso real, objetos sin
+  uso, consultas recurrentes (candidatas a vista de consumo) y las más
+  lentas. No propone índices: se midió que en DuckDB no aportan a este
+  volumen y llegan a empeorar el filtro por texto (ver `_decisiones`).
