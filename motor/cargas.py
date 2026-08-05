@@ -21,7 +21,7 @@ from pathlib import Path
 
 import jsonschema
 
-from . import catalogo, operaciones
+from . import catalogo, operaciones, validaciones
 
 ROOT = Path(__file__).resolve().parent.parent
 CARGAS_DIR = ROOT / "cargas"
@@ -41,6 +41,19 @@ SCHEMA_DEFINICION = {
         "tabla_hall": {"type": "string", "minLength": 1},
         "transformacion_sql": {"type": "string", "minLength": 1},
         "campos_singularidad": {"type": "array", "items": {"type": "string"}},
+        "validaciones": {"type": "array", "items": validaciones.SCHEMA_VALIDACION},
+        "acciones": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "momento": {"enum": ["antes", "tras_validar", "al_fallar"]},
+                    "sql": {"type": "string", "minLength": 1},
+                },
+                "required": ["momento", "sql"],
+                "additionalProperties": False,
+            },
+        },
         "mapping": {
             "type": "array",
             "minItems": 1,
@@ -124,6 +137,10 @@ def validar(definicion: dict, con=None) -> list:
 
     if len(set(destinos)) != len(destinos):
         errores.append("hay campos destino duplicados en el mapping")
+
+    nombres_validacion = [v["nombre"] for v in definicion.get("validaciones", [])]
+    if len(set(nombres_validacion)) != len(nombres_validacion):
+        errores.append("hay validaciones con el mismo 'nombre'")
 
     campos_singularidad = definicion.get("campos_singularidad", [])
 

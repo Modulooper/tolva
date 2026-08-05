@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from . import validaciones
+
 CONCEPTOS_VALIDOS = ("viajes", "hoteles", "gasolina", "otros")
 
 
@@ -22,17 +24,21 @@ def resolver_persona(con, nombre: str) -> str:
     return _resolver(con, "persona", nombre)
 
 
-def crear(con, cliente: str, persona: str, concepto: str, importe: float, fecha: date, descripcion: str = None) -> str:
+def crear(con, cliente: str, persona: str, concepto: str, importe: float, fecha: date, descripcion: str = None):
+    """Devuelve (id_ticket, resultados_validacion)."""
     if concepto not in CONCEPTOS_VALIDOS:
         raise ValueError(f"concepto '{concepto}' no válido, debe ser uno de {CONCEPTOS_VALIDOS}")
     cliente_id = resolver_cliente(con, cliente)
     persona_id = resolver_persona(con, persona)
-    fila = con.execute(
-        """INSERT INTO ticket (cliente_id, persona_id, concepto, descripcion, importe, fecha)
-           VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
-        [cliente_id, persona_id, concepto, descripcion, importe, fecha],
-    ).fetchone()
-    return fila[0]
+
+    def escribir():
+        return con.execute(
+            """INSERT INTO ticket (cliente_id, persona_id, concepto, descripcion, importe, fecha)
+               VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
+            [cliente_id, persona_id, concepto, descripcion, importe, fecha],
+        ).fetchone()[0]
+
+    return validaciones.proteger_escritura(con, "ticket", escribir)
 
 
 def listar(con, cliente: str = None, persona: str = None, concepto: str = None, desde: date = None, hasta: date = None):
@@ -83,7 +89,12 @@ def editar(con, ticket_id: str, **campos) -> None:
         raise ValueError(f"no existe ticket con id '{ticket_id}'")
     set_clause = ", ".join(f"{c} = ?" for c in campos_presentes) + ", updated_at = current_timestamp"
     parametros = list(campos_presentes.values()) + [ticket_id]
-    con.execute(f"UPDATE ticket SET {set_clause} WHERE id = ?", parametros)
+
+    def escribir():
+        con.execute(f"UPDATE ticket SET {set_clause} WHERE id = ?", parametros)
+
+    _, resultados = validaciones.proteger_escritura(con, "ticket", escribir)
+    return resultados
 
 
 def borrar(con, ticket_id: str) -> None:

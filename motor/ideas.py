@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from . import validaciones
+
 ESTADOS_VALIDOS = ("pendiente", "en_curso", "descartada", "hecha")
 
 
@@ -40,11 +42,14 @@ def crear(con, persona: str, texto: str, cliente: str = None, estado: str = None
         valores.append(fecha)
 
     placeholders = ", ".join("?" for _ in valores)
-    fila = con.execute(
-        f"INSERT INTO idea ({', '.join(columnas)}) VALUES ({placeholders}) RETURNING id",
-        valores,
-    ).fetchone()
-    return fila[0]
+
+    def escribir():
+        return con.execute(
+            f"INSERT INTO idea ({', '.join(columnas)}) VALUES ({placeholders}) RETURNING id",
+            valores,
+        ).fetchone()[0]
+
+    return validaciones.proteger_escritura(con, "idea", escribir)
 
 
 def listar(con, persona: str = None, cliente: str = None, estado: str = None, desde: date = None, hasta: date = None):
@@ -98,7 +103,12 @@ def editar(con, idea_id: str, **campos) -> None:
         raise ValueError(f"no existe idea con id '{idea_id}'")
     set_clause = ", ".join(f"{c} = ?" for c in campos_presentes) + ", updated_at = current_timestamp"
     parametros = list(campos_presentes.values()) + [idea_id]
-    con.execute(f"UPDATE idea SET {set_clause} WHERE id = ?", parametros)
+
+    def escribir():
+        con.execute(f"UPDATE idea SET {set_clause} WHERE id = ?", parametros)
+
+    _, resultados = validaciones.proteger_escritura(con, "idea", escribir)
+    return resultados
 
 
 def borrar(con, idea_id: str) -> None:

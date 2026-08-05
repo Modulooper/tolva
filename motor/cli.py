@@ -8,7 +8,18 @@ from datetime import date
 
 import duckdb
 
-from . import cargas, consultas, db, export, ideas, motor_etl, perfil, solapamiento, tickets
+from . import (
+    cargas,
+    consultas,
+    db,
+    export,
+    ideas,
+    motor_etl,
+    perfil,
+    solapamiento,
+    tickets,
+    validaciones,
+)
 
 
 def _imprimir_tabla(columnas, filas) -> None:
@@ -167,18 +178,38 @@ def _cmd_etl_ejecutar(args: argparse.Namespace) -> int:
     for fr in resultado["ficheros"]:
         if fr["estado"] == "OMITIDO":
             print(f"{fr['fichero']}: OMITIDO ({fr['motivo']})")
-        else:
+            continue
+
+        print(
+            f"{fr['fichero']}: {fr['estado']} "
+            f"(leídas={fr['filas_leidas']} ok={fr['filas_ok']} rechazadas={fr['filas_rechazadas']})"
+        )
+
+        stops = validaciones.disparadas(fr.get("validaciones", []), "stop")
+        alarmas = validaciones.disparadas(fr.get("validaciones", []), "alarma")
+        for r in stops + alarmas:
+            print(validaciones.formatear(r))
+
+        if fr["estado"] == "ERROR":
+            print("  Carga ABORTADA: la tabla destino no se ha modificado.")
+            print(f"  Ejecución {fr['ejecucion_id']} registrada. Detalle completo:")
             print(
-                f"{fr['fichero']}: {fr['estado']} "
-                f"(leídas={fr['filas_leidas']} ok={fr['filas_ok']} rechazadas={fr['filas_rechazadas']})"
+                f"    db consultar \"SELECT * FROM _validaciones_disparadas "
+                f"WHERE ejecucion_id = {fr['ejecucion_id']}\""
             )
+            if fr.get("tabla_hall"):
+                print(
+                    f"  Los datos entrantes quedan en '{fr['tabla_hall']}' para inspeccionarlos "
+                    "(hasta la siguiente carga)."
+                )
+        else:
             print(
                 f"  promovidas={fr['filas_promovidas']} "
                 f"sustituidas={fr['filas_sustituidas']} (borradas por singularidad antes de insertar)"
             )
     if not resultado["ficheros"]:
         print("No hay ficheros que coincidan con el patrón.")
-    return 0
+    return 1 if resultado["estado"] == "ERROR" else 0
 
 
 def _cmd_etl_exportar(args: argparse.Namespace) -> int:
@@ -202,17 +233,26 @@ def _cmd_etl_estado(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _avisar_alarmas(resultados) -> None:
+    for r in validaciones.disparadas(resultados or [], "alarma"):
+        print(validaciones.formatear(r))
+
+
 def _cmd_ticket_crear(args: argparse.Namespace) -> int:
     con = db.conectar()
     try:
         try:
-            ticket_id = tickets.crear(
+            ticket_id, resultados = tickets.crear(
                 con, args.cliente, args.persona, args.concepto, args.importe, args.fecha, args.descripcion
             )
+        except validaciones.StopError as exc:
+            print(f"ERROR: no se creó el ticket.\n{exc}", file=sys.stderr)
+            return 1
         except ValueError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
         print(f"Ticket creado: {ticket_id}")
+        _avisar_alarmas(resultados)
         return 0
     finally:
         con.close()
@@ -239,6 +279,9 @@ def _cmd_ticket_editar(args: argparse.Namespace) -> int:
                 con, args.id, concepto=args.concepto, descripcion=args.descripcion,
                 importe=args.importe, fecha=args.fecha,
             )
+        except validaciones.StopError as exc:
+            print(f"ERROR: no se actualizó el ticket.\n{exc}", file=sys.stderr)
+            return 1
         except ValueError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
@@ -266,13 +309,17 @@ def _cmd_idea_crear(args: argparse.Namespace) -> int:
     con = db.conectar()
     try:
         try:
-            idea_id = ideas.crear(
+            idea_id, resultados = ideas.crear(
                 con, args.persona, args.texto, cliente=args.cliente, estado=args.estado, fecha=args.fecha
             )
+        except validaciones.StopError as exc:
+            print(f"ERROR: no se creó la idea.\n{exc}", file=sys.stderr)
+            return 1
         except ValueError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
         print(f"Idea creada: {idea_id}")
+        _avisar_alarmas(resultados)
         return 0
     finally:
         con.close()
@@ -299,6 +346,9 @@ def _cmd_idea_editar(args: argparse.Namespace) -> int:
                 con, args.id, texto=args.texto, cliente=args.cliente,
                 estado=args.estado, fecha=args.fecha,
             )
+        except validaciones.StopError as exc:
+            print(f"ERROR: no se actualizó la idea.\n{exc}", file=sys.stderr)
+            return 1
         except ValueError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1

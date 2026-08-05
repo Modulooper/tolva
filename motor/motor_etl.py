@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import cargas, db, operaciones
+from . import cargas, db, operaciones, validaciones
 
 
 def _hash_fichero(ruta: Path) -> str:
@@ -130,60 +130,56 @@ def _insertar_bloque(con, tabla: str, filas: list) -> None:
         con.unregister("_bloque_entrante")
 
 
-def _borrar_combinaciones(con, tabla: str, campos_singularidad: list, filas: list) -> int:
-    """Borra de `tabla` las filas cuya combinación de campos_singularidad aparezca
-    en `filas`. Devuelve cuántas se borraron.
+TABLA_ENTRANTE = "_entrante"
 
-    Sin campos_singularidad la carga es acumulativa pura: no borra nada.
+
+def _columnas_de(con, tabla: str) -> set:
+    filas = con.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = ?", [tabla]
+    ).fetchall()
+    return {f[0] for f in filas}
+
+
+def _crear_entrante(con, filas: list, ejecucion_id: int, columnas_mapping: list) -> None:
+    """Materializa las filas ya mapeadas en una tabla temporal.
+
+    Existe para que las validaciones puedan interrogar los datos entrantes con
+    SQL antes de que toquen ninguna tabla real, también en cargas sin hall, y
+    para que la promoción no tenga que volver a pasar por Python.
     """
-    if not campos_singularidad or not filas:
-        return 0
     import pandas as pd
 
-    combinaciones = pd.DataFrame(
-        [{c: fila.get(c) for c in campos_singularidad} for fila in filas]
-    ).drop_duplicates()
-    con.register("_combinaciones_entrantes", combinaciones)
+    columnas = sorted(set(columnas_mapping) | {c for fila in filas for c in fila.keys()})
+    df = pd.DataFrame(filas, columns=columnas) if filas else pd.DataFrame(columns=columnas)
+    df["ejecucion_id"] = ejecucion_id
+    con.register("_df_entrante", df)
     try:
-        condicion = " AND ".join(f"t.{c} IS NOT DISTINCT FROM e.{c}" for c in campos_singularidad)
-        borradas = con.execute(
-            f"SELECT count(*) FROM {tabla} t "
-            f"WHERE EXISTS (SELECT 1 FROM _combinaciones_entrantes e WHERE {condicion})"
-        ).fetchone()[0]
-        con.execute(
-            f"DELETE FROM {tabla} t "
-            f"WHERE EXISTS (SELECT 1 FROM _combinaciones_entrantes e WHERE {condicion})"
-        )
+        con.execute(f"CREATE OR REPLACE TEMP TABLE {TABLA_ENTRANTE} AS SELECT * FROM _df_entrante")
     finally:
-        con.unregister("_combinaciones_entrantes")
-    return borradas
+        con.unregister("_df_entrante")
 
 
-def _cargar_hall(con, tabla_hall: str, filas: list) -> None:
-    """La hall es siempre foto completa: se vacía entera y se recarga."""
+def _cargar_hall(con, tabla_hall: str) -> None:
+    """La hall es siempre foto completa: se vacía entera y se recarga desde
+    los datos entrantes."""
     con.execute(f"DELETE FROM {tabla_hall}")
-    _insertar_bloque(con, tabla_hall, filas)
-
-
-def _promover(con, tabla_destino: str, campos_singularidad: list, filas: list) -> int:
-    """Borra en bloque las combinaciones de singularidad presentes en `filas` e
-    inserta `filas`. Sin campos_singularidad, solo acumula."""
-    borradas = _borrar_combinaciones(con, tabla_destino, campos_singularidad, filas)
-    _insertar_bloque(con, tabla_destino, filas)
-    return borradas
+    comunes = sorted(_columnas_de(con, tabla_hall) & _columnas_de(con, TABLA_ENTRANTE))
+    lista = ", ".join(comunes)
+    con.execute(f"INSERT INTO {tabla_hall} ({lista}) SELECT {lista} FROM {TABLA_ENTRANTE}")
 
 
 def _promover_desde_sql(con, tabla_destino: str, campos_singularidad: list, sql_origen: str) -> tuple:
-    """Promoción sin pasar los datos por Python: el borrado y la inserción se
-    resuelven dentro del motor a partir del SELECT de transformación.
+    """Promoción sin pasar los datos por Python: el borrado por singularidad y
+    la inserción se resuelven dentro del motor.
 
-    Traer las filas transformadas a Python solo para reinsertarlas obligaría a
-    materializarlas dos veces (fetchall + DataFrame); DuckDB puede hacer todo
-    el trayecto hall -> destino internamente.
+    Solo se promueven las columnas que existen en el destino: el origen puede
+    traer columnas de trabajo (o `ejecucion_id` en tablas que no la tengan) que
+    no deben viajar.
     """
     con.execute(f"CREATE OR REPLACE TEMP TABLE _transformadas AS {sql_origen}")
     promovidas = con.execute("SELECT count(*) FROM _transformadas").fetchone()[0]
-    columnas = [f[0] for f in con.execute("DESCRIBE _transformadas").fetchall()]
+    columnas = sorted(_columnas_de(con, "_transformadas") & _columnas_de(con, tabla_destino))
+    lista = ", ".join(columnas)
 
     borradas = 0
     if campos_singularidad:
@@ -192,11 +188,56 @@ def _promover_desde_sql(con, tabla_destino: str, campos_singularidad: list, sql_
         borradas = con.execute(f"SELECT count(*) FROM {tabla_destino} t WHERE {existe}").fetchone()[0]
         con.execute(f"DELETE FROM {tabla_destino} t WHERE {existe}")
 
-    con.execute(
-        f"INSERT INTO {tabla_destino} ({', '.join(columnas)}) SELECT {', '.join(columnas)} FROM _transformadas"
-    )
+    con.execute(f"INSERT INTO {tabla_destino} ({lista}) SELECT {lista} FROM _transformadas")
     con.execute("DROP TABLE _transformadas")
     return promovidas, borradas
+
+
+def _ejecutar_acciones(con, definicion: dict, momento: str) -> list:
+    """Acciones SQL declaradas para un momento del ciclo de vida."""
+    ejecutadas = []
+    for accion in definicion.get("acciones", []):
+        if accion["momento"] == momento:
+            con.execute(accion["sql"])
+            ejecutadas.append(accion["sql"])
+    return ejecutadas
+
+
+def _insertar_rechazos(con, ejecucion_id: int, rechazadas: list) -> None:
+    _insertar_bloque(
+        con,
+        "_rechazos",
+        [
+            {
+                "ejecucion_id": ejecucion_id,
+                "num_fila": num_fila,
+                "motivo": motivo,
+                "campo_implicado": campo,
+                "contenido_raw": raw,
+            }
+            for num_fila, motivo, campo, raw in rechazadas
+        ],
+    )
+
+
+def _registrar_validaciones(con, ejecucion_id, origen: str, resultados: list) -> None:
+    filas = [
+        {
+            "ejecucion_id": ejecucion_id,
+            "origen": origen,
+            "nombre": r["nombre"],
+            "tipo": r["tipo"],
+            "mensaje": r["mensaje"],
+            "afectadas": r["afectadas"],
+            "detalle": json.dumps(
+                [dict(zip(r["columnas"], fila)) for fila in r["detalle"]],
+                default=str,
+                ensure_ascii=False,
+            ),
+        }
+        for r in validaciones.disparadas(resultados)
+    ]
+    _insertar_bloque(con, "_validaciones_disparadas", filas)
 
 
 def _validar_o_lanzar(definicion: dict, con) -> None:
@@ -250,29 +291,21 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
     resultado = procesar_filas(cabecera, filas, definicion)
     # Si se llega aquí, el fichero se leyó y procesó fila a fila sin excepción:
     # las filas inválidas quedan en _rechazos, no convierten la ejecución en un fallo.
-    estado = "OK"
 
     campos_singularidad = definicion.get("campos_singularidad", [])
+    columnas_mapping = [c["destino"] for c in definicion["mapping"]]
 
+    # La ejecución se registra ANTES de escribir para tener su id disponible:
+    # las tablas que declaren `ejecucion_id` lo llevan en cada fila, y así se
+    # puede borrar o inspeccionar exactamente lo que metió una carga concreta.
+    # Además, una carga abortada por un stop deja traza (antes no dejaba
+    # ninguna, porque el rollback se llevaba también el registro).
     con.execute("BEGIN TRANSACTION")
     try:
-        if cargas.usa_hall(definicion):
-            # 1) la hall se sustituye entera con lo que trae el fichero,
-            # 2) la transformación SQL (la T) produce las filas finales,
-            # 3) esas filas se promueven a la tabla destino sin salir del motor.
-            _cargar_hall(con, definicion["tabla_hall"], resultado.validas)
-            promovidas, borradas = _promover_desde_sql(
-                con, definicion["tabla_destino"], campos_singularidad, definicion["transformacion_sql"]
-            )
-        else:
-            promovidas = len(resultado.validas)
-            borradas = _promover(
-                con, definicion["tabla_destino"], campos_singularidad, resultado.validas
-            )
         ejecucion_id = con.execute(
             """INSERT INTO _ejecuciones
-               (carga, fichero, hash_fichero, filas_leidas, filas_ok, filas_rechazadas, estado, duracion, usuario)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""",
+               (carga, fichero, hash_fichero, filas_leidas, filas_ok, filas_rechazadas, estado, usuario)
+               VALUES (?, ?, ?, ?, ?, ?, 'EN_CURSO', ?) RETURNING id""",
             [
                 nombre_carga,
                 ruta.name,
@@ -280,25 +313,59 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
                 resultado.filas_leidas,
                 len(resultado.validas),
                 len(resultado.rechazadas),
-                estado,
-                time.perf_counter() - inicio,
                 getpass.getuser(),
             ],
         ).fetchone()[0]
-        _insertar_bloque(
-            con,
-            "_rechazos",
-            [
-                {
-                    "ejecucion_id": ejecucion_id,
-                    "num_fila": num_fila,
-                    "motivo": motivo,
-                    "campo_implicado": campo,
-                    "contenido_raw": raw,
-                }
-                for num_fila, motivo, campo, raw in resultado.rechazadas
-            ],
+
+        _ejecutar_acciones(con, definicion, "antes")
+        _crear_entrante(con, resultado.validas, ejecucion_id, columnas_mapping)
+        if cargas.usa_hall(definicion):
+            _cargar_hall(con, definicion["tabla_hall"])
+
+        resultados_validacion = validaciones.ejecutar(con, definicion.get("validaciones", []))
+        _registrar_validaciones(con, ejecucion_id, f"carga:{nombre_carga}", resultados_validacion)
+
+        if validaciones.hay_stop(resultados_validacion):
+            # Un stop no revierte lo ya escrito en la hall: se conserva (y se
+            # registra la ejecución) para poder investigar el fichero rechazado
+            # con `db consultar`. Si se quiere limpiar, la carga declara una
+            # acción con momento "al_fallar". El destino no se ha tocado.
+            _ejecutar_acciones(con, definicion, "al_fallar")
+            con.execute(
+                "UPDATE _ejecuciones SET estado = 'ERROR', duracion = ? WHERE id = ?",
+                [time.perf_counter() - inicio, ejecucion_id],
+            )
+            _insertar_rechazos(con, ejecucion_id, resultado.rechazadas)
+            con.execute("COMMIT")
+            return {
+                "fichero": ruta.name,
+                "estado": "ERROR",
+                "ejecucion_id": ejecucion_id,
+                "filas_leidas": resultado.filas_leidas,
+                "filas_ok": len(resultado.validas),
+                "filas_rechazadas": len(resultado.rechazadas),
+                "filas_promovidas": 0,
+                "filas_sustituidas": 0,
+                "validaciones": resultados_validacion,
+                "tabla_hall": definicion.get("tabla_hall"),
+            }
+
+        # Superados los stops, se ejecutan las acciones dependientes y se promueve.
+        _ejecutar_acciones(con, definicion, "tras_validar")
+        origen = (
+            definicion["transformacion_sql"]
+            if cargas.usa_hall(definicion)
+            else f"SELECT * FROM {TABLA_ENTRANTE}"
         )
+        promovidas, borradas = _promover_desde_sql(
+            con, definicion["tabla_destino"], campos_singularidad, origen
+        )
+
+        con.execute(
+            "UPDATE _ejecuciones SET estado = 'OK', duracion = ? WHERE id = ?",
+            [time.perf_counter() - inicio, ejecucion_id],
+        )
+        _insertar_rechazos(con, ejecucion_id, resultado.rechazadas)
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -309,12 +376,15 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
 
     return {
         "fichero": ruta.name,
-        "estado": estado,
+        "estado": "OK",
+        "ejecucion_id": ejecucion_id,
         "filas_leidas": resultado.filas_leidas,
         "filas_ok": len(resultado.validas),
         "filas_rechazadas": len(resultado.rechazadas),
         "filas_promovidas": promovidas,
         "filas_sustituidas": borradas,
+        "validaciones": resultados_validacion,
+        "tabla_hall": definicion.get("tabla_hall"),
     }
 
 
@@ -326,6 +396,10 @@ def ejecutar_carga(nombre_carga: str, forzar: bool = False, db_path=None) -> dic
         carpeta = cargas.carpeta_entrada(definicion)
         ficheros = sorted(carpeta.glob(definicion["patron"]))
         resumen = [_procesar_fichero(con, definicion, ruta, forzar) for ruta in ficheros]
-        return {"carga": definicion["nombre"], "ficheros": resumen}
+        return {
+            "carga": definicion["nombre"],
+            "ficheros": resumen,
+            "estado": "ERROR" if any(f["estado"] == "ERROR" for f in resumen) else "OK",
+        }
     finally:
         con.close()

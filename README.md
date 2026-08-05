@@ -147,6 +147,76 @@ DuckDB es columnar y degrada de forma no lineal con SQL fila a fila: medido,
 1.000 filas por SQL tardan ~13s, mientras que 500.000 vía DataFrame tardan
 ~0,35s.
 
+## Stops y alarmas
+
+Una validación es un `SELECT`. **Si devuelve filas, se dispara**; si no
+devuelve ninguna, pasa. Las filas devueltas son el detalle que se muestra, así
+que la consulta debe seleccionar lo que identifique el problema.
+
+- **`stop`**: el proceso no sigue. La carga queda como no OK (`etl ejecutar`
+  devuelve código 1) y **la tabla destino no se toca**.
+- **`alarma`**: el proceso avanza y el aviso se muestra al terminar.
+
+Puede haber varias de cada tipo; basta un stop disparado para abortar.
+
+```json
+"validaciones": [
+  {
+    "nombre": "anio_actual",
+    "tipo": "stop",
+    "mensaje": "El fichero incluye fechas de años distintos al actual.",
+    "sql": "SELECT anio, mes, count(*) AS filas FROM _entrante WHERE anio <> year(current_date) GROUP BY 1,2",
+    "limite_detalle": 5
+  }
+]
+```
+
+Los datos entrantes están disponibles como **`_entrante`** (tabla temporal con
+las filas ya mapeadas, más `ejecucion_id`), y también en la hall si la carga
+tiene. Una validación que no se puede ejecutar (SQL mal formado, tabla
+inexistente) es error duro: una comprobación que nunca comprobó nada no cuenta
+como superada.
+
+Las mismas validaciones pueden declararse en `/catalogo/<tabla>.json` como
+invariantes de la tabla. Entonces se comprueban en **cualquier** escritura,
+también desde el CLI (`ticket crear`, `idea editar`...): la comprobación corre
+después de escribir y dentro de la misma transacción, así que un stop revierte
+y no queda nada grabado.
+
+### Acciones del ciclo de vida
+
+```json
+"acciones": [
+  {"momento": "antes",        "sql": "..."},
+  {"momento": "tras_validar", "sql": "..."},
+  {"momento": "al_fallar",    "sql": "DELETE FROM hall_previsiones"}
+]
+```
+
+- **`antes`**: antes de materializar los datos entrantes.
+- **`tras_validar`**: superados todos los stops, antes de promover.
+- **`al_fallar`**: cuando un stop ha abortado la carga.
+
+Por defecto, un stop **no** limpia nada: la hall conserva los datos del fichero
+rechazado y la ejecución queda registrada, para poder investigar con
+`db consultar`. Si se quiere limpiar, se declara explícitamente con
+`al_fallar`.
+
+### Trazabilidad por carga
+
+Cada ejecución se registra en `_ejecuciones` **antes** de escribir, así que
+tiene id desde el principio y una carga abortada también deja traza. Las tablas
+que declaren la columna `ejecucion_id` la reciben rellena en cada fila, lo que
+permite borrar o inspeccionar exactamente lo que metió un proceso de carga
+concreto, sin depender de los campos de negocio:
+
+```sql
+DELETE FROM previ_transporte WHERE ejecucion_id = 9;
+```
+
+Lo que se dispara queda en `_validaciones_disparadas`, con el detalle de las
+filas implicadas en JSON.
+
 ## Registro de consultas y uso real
 
 Toda consulta conversacional (`db consultar`) y toda extracción
@@ -310,3 +380,12 @@ los ficheros exportados desde otra herramienta.
   uso, consultas recurrentes (candidatas a vista de consumo) y las más
   lentas. No propone índices: se midió que en DuckDB no aportan a este
   volumen y llegan a empeorar el filtro por texto (ver `_decisiones`).
+- Hito 12: stops y alarmas (`motor/validaciones.py`,
+  `migraciones/012_validaciones.sql`). Una validación es un `SELECT` que, si
+  devuelve filas, corta la carga (`stop`) o deja aviso (`alarma`), mostrando
+  el detalle de las filas implicadas. Se declaran en la carga o, como
+  invariantes de tabla, en `/catalogo/<tabla>.json`, y en ese caso rigen
+  también para las escrituras del CLI (`ticket crear`, `idea editar`), donde
+  un stop revierte la operación. Acciones declarativas por momento del ciclo
+  de vida (`antes`, `tras_validar`, `al_fallar`) y `ejecucion_id` en las
+  tablas de carga para poder deshacer o inspeccionar por proceso de carga.

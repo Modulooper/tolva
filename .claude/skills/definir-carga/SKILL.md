@@ -109,6 +109,21 @@ transformación produce las filas finales que se promueven al destino. Si el
 fichero ya viene con la forma final, no la uses: añade complejidad sin
 ganancia.
 
+## 6c. ¿Hay condiciones que deban cortar la carga?
+
+Pregunta al usuario qué haría el fichero **inaceptable** (un stop) y qué
+sería solo raro pero admisible (una alarma). Una validación es un `SELECT`
+sobre `_entrante` (los datos ya mapeados) o sobre la hall: si devuelve filas
+se dispara, y las columnas que selecciones son el detalle que verá el
+usuario, así que incluye lo que identifique el problema (valores implicados,
+recuento). Ver README, "Stops y alarmas".
+
+No inventes reglas de negocio: proponlas a partir de lo que el usuario diga
+o de anomalías reales que hayas visto al perfilar (fechas fuera de rango,
+importes negativos, códigos sin correspondencia), y confírmalas antes de
+darlas por buenas. Si una regla vale para la tabla venga el dato de donde
+venga, va en `/catalogo/<tabla>.json` en vez de en la carga.
+
 ## 7. Construye el borrador y muéstralo
 
 Arma el JSON completo de la definición (mismo esquema que

@@ -10,6 +10,8 @@ from pathlib import Path
 
 import jsonschema
 
+from . import validaciones
+
 ROOT = Path(__file__).resolve().parent.parent
 CATALOGO_DIR = ROOT / "catalogo"
 
@@ -49,6 +51,10 @@ SCHEMA_ENTIDAD = {
                 "additionalProperties": False,
             },
         },
+        # Invariantes de la tabla: se comprueban en cualquier escritura, venga
+        # de una carga o del CLI, para que la regla no dependa de por dónde
+        # entren los datos.
+        "validaciones": {"type": "array", "items": validaciones.SCHEMA_VALIDACION},
     },
     "required": ["entidad", "tabla", "descripcion", "campos"],
     "additionalProperties": False,
@@ -75,6 +81,15 @@ def cargar_por_tabla(tabla: str):
         if entidad.get("tabla") == tabla:
             return entidad
     return None
+
+
+def validaciones_de_tabla(tabla: str) -> list:
+    """Invariantes declarados en el catálogo para esa tabla ([] si no hay)."""
+    try:
+        entidad = cargar_por_tabla(tabla)
+    except jsonschema.ValidationError:
+        return []
+    return entidad.get("validaciones", []) if entidad else []
 
 
 def campos_declarados(entidad: dict) -> set:

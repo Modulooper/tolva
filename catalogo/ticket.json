@@ -3,24 +3,95 @@
   "tabla": "ticket",
   "descripcion": "Ticket de gasto (viajes, hoteles, gasolina) atado a un cliente y a la persona que lo generó.",
   "campos": {
-    "id": {"tipo": "uuid", "obligatorio": true, "sistema": true, "descripcion": "Identificador interno.", "sinonimos": []},
-    "cliente_id": {"tipo": "uuid", "obligatorio": true, "descripcion": "Cliente para el que se hizo el gasto.", "sinonimos": []},
-    "persona_id": {"tipo": "uuid", "obligatorio": true, "descripcion": "Persona que generó el gasto.", "sinonimos": []},
+    "id": {
+      "tipo": "uuid",
+      "obligatorio": true,
+      "sistema": true,
+      "descripcion": "Identificador interno.",
+      "sinonimos": []
+    },
+    "cliente_id": {
+      "tipo": "uuid",
+      "obligatorio": true,
+      "descripcion": "Cliente para el que se hizo el gasto.",
+      "sinonimos": []
+    },
+    "persona_id": {
+      "tipo": "uuid",
+      "obligatorio": true,
+      "descripcion": "Persona que generó el gasto.",
+      "sinonimos": []
+    },
     "concepto": {
       "tipo": "varchar",
       "obligatorio": true,
       "descripcion": "Categoría del gasto.",
-      "sinonimos": ["Concepto", "Categoria", "Categoría"],
-      "validacion": {"lista_valores": ["viajes", "hoteles", "gasolina"]}
+      "sinonimos": [
+        "Concepto",
+        "Categoria",
+        "Categoría"
+      ],
+      "validacion": {
+        "lista_valores": [
+          "viajes",
+          "hoteles",
+          "gasolina"
+        ]
+      }
     },
-    "descripcion": {"tipo": "varchar", "obligatorio": false, "descripcion": "Descripción libre del gasto.", "sinonimos": ["Descripcion", "Descripción", "Notas"]},
-    "importe": {"tipo": "double", "obligatorio": true, "descripcion": "Importe del gasto.", "sinonimos": ["Importe"]},
-    "fecha": {"tipo": "date", "obligatorio": true, "descripcion": "Fecha del gasto.", "sinonimos": ["Fecha"]},
-    "created_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de alta del registro.", "sinonimos": []},
-    "updated_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de última modificación.", "sinonimos": []}
+    "descripcion": {
+      "tipo": "varchar",
+      "obligatorio": false,
+      "descripcion": "Descripción libre del gasto.",
+      "sinonimos": [
+        "Descripcion",
+        "Descripción",
+        "Notas"
+      ]
+    },
+    "importe": {
+      "tipo": "double",
+      "obligatorio": true,
+      "descripcion": "Importe del gasto.",
+      "sinonimos": [
+        "Importe"
+      ]
+    },
+    "fecha": {
+      "tipo": "date",
+      "obligatorio": true,
+      "descripcion": "Fecha del gasto.",
+      "sinonimos": [
+        "Fecha"
+      ]
+    },
+    "created_at": {
+      "tipo": "timestamp",
+      "obligatorio": true,
+      "sistema": true,
+      "descripcion": "Fecha de alta del registro.",
+      "sinonimos": []
+    },
+    "updated_at": {
+      "tipo": "timestamp",
+      "obligatorio": true,
+      "sistema": true,
+      "descripcion": "Fecha de última modificación.",
+      "sinonimos": []
+    }
   },
   "relaciones": [
-    {"campo": "cliente_id", "entidad_destino": "cliente", "campo_destino": "id", "tipo": "N:1"},
-    {"campo": "persona_id", "entidad_destino": "persona", "campo_destino": "id", "tipo": "N:1"}
+    {
+      "campo": "cliente_id",
+      "entidad_destino": "cliente",
+      "campo_destino": "id",
+      "tipo": "N:1"
+    },
+    {
+      "campo": "persona_id",
+      "entidad_destino": "persona",
+      "campo_destino": "id",
+      "tipo": "N:1"
+    }
   ]
 }
