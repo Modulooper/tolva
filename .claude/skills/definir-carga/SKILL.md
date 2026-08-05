@@ -78,29 +78,52 @@ Si `tipo_aparente` marca `double (formato_numerico: es)`, añade
 `"formato_numerico": "es"` al `cast`. Si el fichero mezcla formatos o no
 estás seguro, pregunta.
 
-## 6. Clave de upsert
+## 6. Campos de singularidad
 
-Propón `clave_upsert` a partir de lo que identifica un registro de forma
-única en la fuente real (no en la muestra): si no hay un ID explícito,
-busca una combinación de campos que sea razonablemente única (ver el
-ejemplo de `movimientos_banco`, que usa fecha+concepto+importe+saldo porque
-el extracto no trae ID de movimiento). Explica el razonamiento al usuario,
-no lo des por hecho en silencio.
+Las cargas de fichero no hacen upsert fila a fila: declaran
+`campos_singularidad`, y en cada ejecución el motor borra en bloque las
+combinaciones de esos campos presentes en los datos entrantes antes de
+insertar el bloque nuevo (ver README, "Cómo escriben las cargas de
+fichero"). Propón esos campos preguntándote **qué porción del histórico
+debe sustituir este fichero al recargarse**:
+
+- Fichero que trae un periodo/ámbito concreto (p. ej. un centro y un mes) →
+  esos campos (`["centro", "mes"]`): recargar sustituye solo esa porción.
+- Fichero que es la foto completa del proceso y sustituye entera a la
+  anterior → `["origen_carga"]` (caso de `previ_transporte`).
+- Fichero que solo añade y nunca corrige → `[]` (acumulativo puro).
+- Si no hay ID explícito pero cada fila es un hecho irrepetible, sirve la
+  combinación que la identifica (`movimientos_banco` usa
+  fecha+concepto+importe+saldo porque el extracto no trae ID de movimiento).
+
+Explica el razonamiento al usuario, no lo des por hecho en silencio: elegir
+mal aquí borra datos que no tocaba, o duplica los que sí.
+
+## 6b. ¿Hace falta tabla hall?
+
+Si los datos necesitan transformarse antes de llegar al destino (columnas
+calculadas, enriquecer con datos de otra tabla, filtrar filas sin
+correspondencia), propón `tabla_hall` + `transformacion_sql`: la hall recibe
+el fichero tal cual (foto completa, se vacía y recarga), y el `SELECT` de
+transformación produce las filas finales que se promueven al destino. Si el
+fichero ya viene con la forma final, no la uses: añade complejidad sin
+ganancia.
 
 ## 7. Construye el borrador y muéstralo
 
 Arma el JSON completo de la definición (mismo esquema que
 `motor/cargas.py:SCHEMA_DEFINICION`): `nombre`, `carpeta` (dentro de
 `/entrada/`, no fuera del repo), `patron`, `formato`, `delimitador`/`hoja`,
-`encoding` si aplica, `fila_cabecera`, `tabla_destino`, `clave_upsert`,
-`mapping`. No incluyas en el mapping los campos de sistema
+`encoding` si aplica, `fila_cabecera`, `tabla_destino`,
+`campos_singularidad`, `mapping` (y `tabla_hall` + `transformacion_sql` si
+aplica). No incluyas en el mapping los campos de sistema
 (`id`, `created_at`, `updated_at`, `extra_fields`) — el motor los gestiona
 solo.
 
 Muéstraselo al usuario en el chat con una explicación breve de cada
 decisión no obvia (formato de fecha elegido y por qué, formato numérico,
-clave de upsert, columnas que se ignoran y por qué). Pide confirmación o
-cambios antes de seguir.
+campos de singularidad y qué porción sustituyen al recargar, columnas que se
+ignoran y por qué). Pide confirmación o cambios antes de seguir.
 
 ## 8. Guarda, valida y dry-run
 

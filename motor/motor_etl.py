@@ -1,7 +1,12 @@
-"""Orquestador del motor ETL: escaneo, mapping fila a fila, upsert, rechazos.
+"""Orquestador del motor ETL: escaneo, mapping fila a fila, promoción, rechazos.
 
 Ningún registro pasa por el modelo. La definición de carga (ya revisada por
 el usuario) es lo único que decide cómo se transforma cada columna.
+
+Las cargas de fichero no hacen upsert fila a fila: promueven en bloque
+(borrado de las combinaciones de `campos_singularidad` presentes en los datos
+nuevos + inserción masiva). Ver `motor/cargas.py` para las dos formas de
+carga (directa y con tabla hall).
 """
 
 import csv
@@ -104,27 +109,94 @@ def procesar_filas(cabecera: list, filas: list, definicion: dict) -> ResultadoPr
     return ResultadoProceso(len(filas), validas, rechazadas, columnas_extra)
 
 
-def _upsert(con, tabla: str, clave_upsert: list, filas: list) -> None:
+def _insertar_bloque(con, tabla: str, filas: list) -> None:
+    """Inserción masiva vía DataFrame.
+
+    DuckDB es columnar: una sentencia INSERT por fila (o una sola sentencia con
+    miles de tuplas) es un antipatrón que degrada de forma no lineal — medido:
+    1.000 filas por SQL tardan ~13s, mientras que 500.000 vía DataFrame tardan
+    ~0,35s. Todo lo que escriba volumen en el almacén pasa por aquí.
+    """
     if not filas:
         return
+    import pandas as pd
+
     columnas = sorted({c for fila in filas for c in fila.keys()})
-    lista_cols = ", ".join(columnas)
-    placeholders = ", ".join("?" for _ in columnas)
-    actualizables = [c for c in columnas if c not in clave_upsert]
-    conflicto = ", ".join(clave_upsert)
-    if actualizables:
-        set_clause = ", ".join(f"{c} = excluded.{c}" for c in actualizables)
-        sql = (
-            f"INSERT INTO {tabla} ({lista_cols}) VALUES ({placeholders}) "
-            f"ON CONFLICT ({conflicto}) DO UPDATE SET {set_clause}"
+    df = pd.DataFrame(filas, columns=columnas)
+    con.register("_bloque_entrante", df)
+    try:
+        con.execute(f"INSERT INTO {tabla} ({', '.join(columnas)}) SELECT * FROM _bloque_entrante")
+    finally:
+        con.unregister("_bloque_entrante")
+
+
+def _borrar_combinaciones(con, tabla: str, campos_singularidad: list, filas: list) -> int:
+    """Borra de `tabla` las filas cuya combinación de campos_singularidad aparezca
+    en `filas`. Devuelve cuántas se borraron.
+
+    Sin campos_singularidad la carga es acumulativa pura: no borra nada.
+    """
+    if not campos_singularidad or not filas:
+        return 0
+    import pandas as pd
+
+    combinaciones = pd.DataFrame(
+        [{c: fila.get(c) for c in campos_singularidad} for fila in filas]
+    ).drop_duplicates()
+    con.register("_combinaciones_entrantes", combinaciones)
+    try:
+        condicion = " AND ".join(f"t.{c} IS NOT DISTINCT FROM e.{c}" for c in campos_singularidad)
+        borradas = con.execute(
+            f"SELECT count(*) FROM {tabla} t "
+            f"WHERE EXISTS (SELECT 1 FROM _combinaciones_entrantes e WHERE {condicion})"
+        ).fetchone()[0]
+        con.execute(
+            f"DELETE FROM {tabla} t "
+            f"WHERE EXISTS (SELECT 1 FROM _combinaciones_entrantes e WHERE {condicion})"
         )
-    else:
-        sql = (
-            f"INSERT INTO {tabla} ({lista_cols}) VALUES ({placeholders}) "
-            f"ON CONFLICT ({conflicto}) DO NOTHING"
-        )
-    for fila in filas:
-        con.execute(sql, [fila.get(c) for c in columnas])
+    finally:
+        con.unregister("_combinaciones_entrantes")
+    return borradas
+
+
+def _cargar_hall(con, tabla_hall: str, filas: list) -> None:
+    """La hall es siempre foto completa: se vacía entera y se recarga."""
+    con.execute(f"DELETE FROM {tabla_hall}")
+    _insertar_bloque(con, tabla_hall, filas)
+
+
+def _promover(con, tabla_destino: str, campos_singularidad: list, filas: list) -> int:
+    """Borra en bloque las combinaciones de singularidad presentes en `filas` e
+    inserta `filas`. Sin campos_singularidad, solo acumula."""
+    borradas = _borrar_combinaciones(con, tabla_destino, campos_singularidad, filas)
+    _insertar_bloque(con, tabla_destino, filas)
+    return borradas
+
+
+def _promover_desde_sql(con, tabla_destino: str, campos_singularidad: list, sql_origen: str) -> tuple:
+    """Promoción sin pasar los datos por Python: el borrado y la inserción se
+    resuelven dentro del motor a partir del SELECT de transformación.
+
+    Traer las filas transformadas a Python solo para reinsertarlas obligaría a
+    materializarlas dos veces (fetchall + DataFrame); DuckDB puede hacer todo
+    el trayecto hall -> destino internamente.
+    """
+    con.execute(f"CREATE OR REPLACE TEMP TABLE _transformadas AS {sql_origen}")
+    promovidas = con.execute("SELECT count(*) FROM _transformadas").fetchone()[0]
+    columnas = [f[0] for f in con.execute("DESCRIBE _transformadas").fetchall()]
+
+    borradas = 0
+    if campos_singularidad:
+        condicion = " AND ".join(f"t.{c} IS NOT DISTINCT FROM e.{c}" for c in campos_singularidad)
+        existe = f"EXISTS (SELECT 1 FROM _transformadas e WHERE {condicion})"
+        borradas = con.execute(f"SELECT count(*) FROM {tabla_destino} t WHERE {existe}").fetchone()[0]
+        con.execute(f"DELETE FROM {tabla_destino} t WHERE {existe}")
+
+    con.execute(
+        f"INSERT INTO {tabla_destino} ({', '.join(columnas)}) SELECT {', '.join(columnas)} FROM _transformadas"
+    )
+    con.execute("DROP TABLE _transformadas")
+    return promovidas, borradas
 
 
 def _validar_o_lanzar(definicion: dict, con) -> None:
@@ -180,9 +252,23 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
     # las filas inválidas quedan en _rechazos, no convierten la ejecución en un fallo.
     estado = "OK"
 
+    campos_singularidad = definicion.get("campos_singularidad", [])
+
     con.execute("BEGIN TRANSACTION")
     try:
-        _upsert(con, definicion["tabla_destino"], definicion["clave_upsert"], resultado.validas)
+        if cargas.usa_hall(definicion):
+            # 1) la hall se sustituye entera con lo que trae el fichero,
+            # 2) la transformación SQL (la T) produce las filas finales,
+            # 3) esas filas se promueven a la tabla destino sin salir del motor.
+            _cargar_hall(con, definicion["tabla_hall"], resultado.validas)
+            promovidas, borradas = _promover_desde_sql(
+                con, definicion["tabla_destino"], campos_singularidad, definicion["transformacion_sql"]
+            )
+        else:
+            promovidas = len(resultado.validas)
+            borradas = _promover(
+                con, definicion["tabla_destino"], campos_singularidad, resultado.validas
+            )
         ejecucion_id = con.execute(
             """INSERT INTO _ejecuciones
                (carga, fichero, hash_fichero, filas_leidas, filas_ok, filas_rechazadas, estado, duracion, usuario)
@@ -199,12 +285,20 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
                 getpass.getuser(),
             ],
         ).fetchone()[0]
-        for num_fila, motivo, campo, raw in resultado.rechazadas:
-            con.execute(
-                """INSERT INTO _rechazos (ejecucion_id, num_fila, motivo, campo_implicado, contenido_raw)
-                   VALUES (?, ?, ?, ?, ?)""",
-                [ejecucion_id, num_fila, motivo, campo, raw],
-            )
+        _insertar_bloque(
+            con,
+            "_rechazos",
+            [
+                {
+                    "ejecucion_id": ejecucion_id,
+                    "num_fila": num_fila,
+                    "motivo": motivo,
+                    "campo_implicado": campo,
+                    "contenido_raw": raw,
+                }
+                for num_fila, motivo, campo, raw in resultado.rechazadas
+            ],
+        )
         con.execute("COMMIT")
     except Exception:
         con.execute("ROLLBACK")
@@ -219,6 +313,8 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
         "filas_leidas": resultado.filas_leidas,
         "filas_ok": len(resultado.validas),
         "filas_rechazadas": len(resultado.rechazadas),
+        "filas_promovidas": promovidas,
+        "filas_sustituidas": borradas,
     }
 
 

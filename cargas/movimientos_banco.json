@@ -7,19 +7,77 @@
   "encoding": "cp1252",
   "fila_cabecera": 1,
   "tabla_destino": "movimiento_bancario",
-  "clave_upsert": ["fecha_ejecucion", "fecha_valor", "concepto", "importe", "saldo"],
   "mapping": [
-    {"origen": "F. ejecución", "destino": "fecha_ejecucion",
-     "operaciones": [{"tipo": "date_format", "formatos": ["%d/%m/%Y"]}]},
-    {"origen": "F. valor", "destino": "fecha_valor",
-     "operaciones": [{"tipo": "date_format", "formatos": ["%d/%m/%Y"]}]},
-    {"origen": "Concepto", "destino": "concepto",
-     "operaciones": [{"tipo": "trim"}]},
-    {"origen": "Importe", "destino": "importe",
-     "operaciones": [{"tipo": "cast", "tipo_destino": "double", "formato_numerico": "es"}]},
-    {"origen": "Saldo", "destino": "saldo",
-     "operaciones": [{"tipo": "cast", "tipo_destino": "double", "formato_numerico": "es"}]},
-    {"destino": "origen_carga",
-     "operaciones": [{"tipo": "const", "valor": "movimientos_banco"}]}
+    {
+      "origen": "F. ejecución",
+      "destino": "fecha_ejecucion",
+      "operaciones": [
+        {
+          "tipo": "date_format",
+          "formatos": [
+            "%d/%m/%Y"
+          ]
+        }
+      ]
+    },
+    {
+      "origen": "F. valor",
+      "destino": "fecha_valor",
+      "operaciones": [
+        {
+          "tipo": "date_format",
+          "formatos": [
+            "%d/%m/%Y"
+          ]
+        }
+      ]
+    },
+    {
+      "origen": "Concepto",
+      "destino": "concepto",
+      "operaciones": [
+        {
+          "tipo": "trim"
+        }
+      ]
+    },
+    {
+      "origen": "Importe",
+      "destino": "importe",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "double",
+          "formato_numerico": "es"
+        }
+      ]
+    },
+    {
+      "origen": "Saldo",
+      "destino": "saldo",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "double",
+          "formato_numerico": "es"
+        }
+      ]
+    },
+    {
+      "destino": "origen_carga",
+      "operaciones": [
+        {
+          "tipo": "const",
+          "valor": "movimientos_banco"
+        }
+      ]
+    }
+  ],
+  "campos_singularidad": [
+    "fecha_ejecucion",
+    "fecha_valor",
+    "concepto",
+    "importe",
+    "saldo"
   ]
 }

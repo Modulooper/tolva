@@ -1,0 +1,169 @@
+{
+  "nombre": "previ_transporte",
+  "carpeta": "entrada/previ_transporte",
+  "patron": "*.xlsx",
+  "formato": "excel",
+  "hoja": "Ficheros Previ a subir",
+  "fila_cabecera": 1,
+  "tabla_destino": "previ_transporte",
+  "mapping": [
+    {
+      "origen": "CODIGO_UT",
+      "destino": "codigo_ut",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "integer"
+        }
+      ]
+    },
+    {
+      "origen": "TRANSPORTISTA",
+      "destino": "transportista",
+      "operaciones": [
+        {
+          "tipo": "trim"
+        }
+      ]
+    },
+    {
+      "origen": "ORACLE_CARRIER_ID",
+      "destino": "oracle_carrier_id",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "integer"
+        }
+      ]
+    },
+    {
+      "origen": "ORACLE_CARRIER_SITE",
+      "destino": "oracle_carrier_site",
+      "operaciones": [
+        {
+          "tipo": "trim"
+        }
+      ]
+    },
+    {
+      "origen": "COSTE_VENTILADO",
+      "destino": "coste_ventilado",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "double"
+        }
+      ]
+    },
+    {
+      "origen": "CODIGO_DT",
+      "destino": "codigo_dt",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "integer"
+        }
+      ]
+    },
+    {
+      "origen": "ALBARAN",
+      "destino": "albaran",
+      "operaciones": [
+        {
+          "tipo": "trim"
+        }
+      ]
+    },
+    {
+      "origen": "MANAGEMENT_UNIT",
+      "destino": "management_unit",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "integer"
+        }
+      ]
+    },
+    {
+      "origen": "DESCARGA_COMIENZO",
+      "destino": "descarga_comienzo",
+      "operaciones": [
+        {
+          "tipo": "date_format",
+          "formatos": [
+            "%Y%m%d%H%M%S"
+          ]
+        }
+      ]
+    },
+    {
+      "origen": "NOMBRE_CLIENTE",
+      "destino": "nombre_cliente",
+      "operaciones": [
+        {
+          "tipo": "trim"
+        }
+      ]
+    },
+    {
+      "origen": "CONTRATO_ORACLE",
+      "destino": "contrato_oracle",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "integer"
+        }
+      ]
+    },
+    {
+      "origen": "DELEG_NOMBRE",
+      "destino": "deleg_nombre",
+      "operaciones": [
+        {
+          "tipo": "trim"
+        }
+      ]
+    },
+    {
+      "origen": "PRIME",
+      "destino": "prime",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "integer"
+        }
+      ]
+    },
+    {
+      "origen": "AÑO",
+      "destino": "anio",
+      "operaciones": [
+        {
+          "tipo": "cast",
+          "tipo_destino": "integer"
+        }
+      ]
+    },
+    {
+      "origen": "MES",
+      "destino": "mes",
+      "operaciones": [
+        {
+          "tipo": "trim"
+        }
+      ]
+    },
+    {
+      "destino": "origen_carga",
+      "operaciones": [
+        {
+          "tipo": "const",
+          "valor": "previ_transporte"
+        }
+      ]
+    }
+  ],
+  "campos_singularidad": [
+    "origen_carga"
+  ]
+}

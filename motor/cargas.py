@@ -1,4 +1,20 @@
-"""Carga, valida y resuelve definiciones de carga (`/cargas/<nombre>.json`)."""
+"""Carga, valida y resuelve definiciones de carga (`/cargas/<nombre>.json`).
+
+Dos formas de carga:
+- Directa: el mapping produce las filas finales, que se promueven a
+  `tabla_destino`.
+- Con hall: el mapping produce filas de staging que sustituyen entera la
+  tabla `tabla_hall` (siempre "borra todo y carga lo nuevo", sin
+  singularidad); `transformacion_sql` es un SELECT sobre esa hall (con joins
+  a otras tablas si hace falta) que produce las filas finales a promover.
+
+En ambos casos, la promoción a `tabla_destino` usa `campos_singularidad`:
+sin campos, acumula sin más; con campos, borra en bloque las combinaciones
+de esos campos presentes en las filas nuevas antes de insertar (ver
+`motor/motor_etl.py::_promover`). No hay upsert fila a fila para cargas de
+fichero — eso queda para las acciones puntuales del CLI conversacional
+(`ticket editar`, `idea editar`...).
+"""
 
 import json
 from pathlib import Path
@@ -22,7 +38,9 @@ SCHEMA_DEFINICION = {
         "hoja": {"type": ["string", "integer", "null"]},
         "fila_cabecera": {"type": "integer", "minimum": 1},
         "tabla_destino": {"type": "string", "minLength": 1},
-        "clave_upsert": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "tabla_hall": {"type": "string", "minLength": 1},
+        "transformacion_sql": {"type": "string", "minLength": 1},
+        "campos_singularidad": {"type": "array", "items": {"type": "string"}},
         "mapping": {
             "type": "array",
             "minItems": 1,
@@ -45,7 +63,6 @@ SCHEMA_DEFINICION = {
         "formato",
         "fila_cabecera",
         "tabla_destino",
-        "clave_upsert",
         "mapping",
     ],
     "additionalProperties": False,
@@ -71,6 +88,10 @@ def cargar(nombre_o_ruta: str) -> dict:
     return json.loads(ruta.read_text(encoding="utf-8"))
 
 
+def usa_hall(definicion: dict) -> bool:
+    return "tabla_hall" in definicion
+
+
 def validar(definicion: dict, con=None) -> list:
     """Devuelve la lista de errores encontrados (vacía si es válida). No lanza excepción."""
     errores = []
@@ -82,6 +103,11 @@ def validar(definicion: dict, con=None) -> list:
 
     if definicion["formato"] == "csv" and "delimitador" not in definicion:
         errores.append("formato 'csv' requiere 'delimitador'")
+
+    tiene_hall = "tabla_hall" in definicion
+    tiene_transform = "transformacion_sql" in definicion
+    if tiene_hall != tiene_transform:
+        errores.append("'tabla_hall' y 'transformacion_sql' van siempre juntos, o ninguno de los dos")
 
     destinos = []
     for campo in definicion["mapping"]:
@@ -99,24 +125,46 @@ def validar(definicion: dict, con=None) -> list:
     if len(set(destinos)) != len(destinos):
         errores.append("hay campos destino duplicados en el mapping")
 
-    for clave in definicion["clave_upsert"]:
-        if clave not in destinos:
-            errores.append(f"clave de upsert '{clave}' no está en el mapping")
+    campos_singularidad = definicion.get("campos_singularidad", [])
 
-    errores.extend(catalogo.validar_mapping_contra_catalogo(definicion["tabla_destino"], destinos))
+    if tiene_hall:
+        # El mapping alimenta la tabla_hall, no tabla_destino directamente.
+        errores.extend(catalogo.validar_mapping_contra_catalogo(definicion["tabla_hall"], destinos))
+    else:
+        errores.extend(catalogo.validar_mapping_contra_catalogo(definicion["tabla_destino"], destinos))
+        for clave in campos_singularidad:
+            if clave not in destinos:
+                errores.append(f"campo de singularidad '{clave}' no está en el mapping")
 
     if con is not None:
-        tabla = definicion["tabla_destino"]
+        tabla_mapping = definicion["tabla_hall"] if tiene_hall else definicion["tabla_destino"]
         filas = con.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
-            [tabla],
+            [tabla_mapping],
         ).fetchall()
         columnas_tabla = {f[0] for f in filas}
         if not columnas_tabla:
-            errores.append(f"la tabla destino '{tabla}' no existe en el almacén")
+            errores.append(f"la tabla '{tabla_mapping}' no existe en el almacén")
         else:
             for destino in destinos:
                 if destino not in columnas_tabla:
-                    errores.append(f"campo destino '{destino}' no existe en la tabla '{tabla}'")
+                    errores.append(f"campo destino '{destino}' no existe en la tabla '{tabla_mapping}'")
+
+        if tiene_hall and not errores:
+            try:
+                columnas_salida = [
+                    fila[0] for fila in con.execute(f"DESCRIBE {definicion['transformacion_sql']}").fetchall()
+                ]
+            except Exception as exc:
+                errores.append(f"'transformacion_sql' inválida: {exc}")
+            else:
+                errores.extend(
+                    catalogo.validar_mapping_contra_catalogo(definicion["tabla_destino"], columnas_salida)
+                )
+                for clave in campos_singularidad:
+                    if clave not in columnas_salida:
+                        errores.append(
+                            f"campo de singularidad '{clave}' no está entre las columnas de 'transformacion_sql'"
+                        )
 
     return errores

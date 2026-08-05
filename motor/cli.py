@@ -135,6 +135,10 @@ def _cmd_etl_ejecutar(args: argparse.Namespace) -> int:
                 f"{fr['fichero']}: {fr['estado']} "
                 f"(leídas={fr['filas_leidas']} ok={fr['filas_ok']} rechazadas={fr['filas_rechazadas']})"
             )
+            print(
+                f"  promovidas={fr['filas_promovidas']} "
+                f"sustituidas={fr['filas_sustituidas']} (borradas por singularidad antes de insertar)"
+            )
     if not resultado["ficheros"]:
         print("No hay ficheros que coincidan con el patrón.")
     return 0

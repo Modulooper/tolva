@@ -101,6 +101,51 @@ python -m motor.cli etl exportar <vista>
 `<carga>` es el nombre de un fichero en `/cargas/<nombre>.json` (o una ruta
 directa a un `.json`).
 
+## Cómo escriben las cargas de fichero: singularidad
+
+Las cargas de fichero **no hacen upsert fila a fila** (eso queda para las
+acciones puntuales del CLI conversacional: `ticket editar`, `idea editar`).
+Una carga declara `campos_singularidad` y el motor, en cada ejecución:
+
+1. borra en bloque de la tabla destino las combinaciones de esos campos que
+   aparecen en los datos entrantes,
+2. inserta el bloque completo.
+
+Así, recargar el fichero sustituye su porción y deja el resto intacto:
+
+- **`"campos_singularidad": []`** (o ausente) → carga acumulativa pura, nunca
+  borra nada.
+- **`["centro", "mes"]`** → recargar un fichero con datos de un centro y mes
+  sustituye solo esa combinación; el resto del histórico no se toca.
+- **`["origen_carga"]`** → foto completa: cada carga sustituye entera a la
+  anterior de esa misma carga (es el caso de `previ_transporte`).
+
+### Tabla hall (la T de ETL)
+
+Una carga puede declarar además `tabla_hall` + `transformacion_sql` (van
+siempre juntos). La hall es la tabla de trabajo: **siempre foto completa**
+(se vacía y se recarga con lo que trae el fichero, sin singularidad propia).
+`transformacion_sql` es un `SELECT` sobre esa hall — con las columnas
+calculadas, joins de enriquecimiento y filtros que hagan falta — y sus filas
+resultantes son las que se promueven a `tabla_destino` aplicando
+`campos_singularidad`. En ese caso el `mapping` valida contra el catálogo de
+la hall, y las columnas de salida del `SELECT` contra el del destino.
+
+```json
+"tabla_hall": "hall_previsiones",
+"transformacion_sql": "SELECT h.*, date_part('month', h.fecha_entrega) AS mes, c.nombre AS cliente FROM hall_previsiones h LEFT JOIN cliente c ON c.id = h.cliente_id WHERE h.importe IS NOT NULL",
+"campos_singularidad": ["centro", "mes"]
+```
+
+La promoción desde la hall no saca los datos del motor: el `DELETE` y el
+`INSERT ... SELECT` se resuelven dentro de DuckDB.
+
+**Volumen**: toda escritura masiva pasa por DataFrame
+(`motor_etl._insertar_bloque`), no por sentencias `INSERT` individuales.
+DuckDB es columnar y degrada de forma no lineal con SQL fila a fila: medido,
+1.000 filas por SQL tardan ~13s, mientras que 500.000 vía DataFrame tardan
+~0,35s.
+
 ## Vocabulario de operaciones ETL
 
 `rename` · `cast` (`varchar`/`integer`/`double`/`boolean`/`date`) · `trim` ·
@@ -113,9 +158,6 @@ sobre toda la columna; si no hay evidencia suficiente o es contradictoria,
 la carga falla explícitamente pidiendo un formato único. Los seriales de
 Excel se detectan por rango numérico plausible, con época configurable
 (`epoch_excel: "1900"` compensa el bug del año bisiesto, o `"1904"`).
-
-Las tablas destino con `clave_upsert` necesitan una restricción `UNIQUE`
-sobre esas columnas (el motor hace `INSERT ... ON CONFLICT ... DO UPDATE`).
 
 `cast` admite `formato_numerico: "es"` para números con miles en `.` y
 decimales en `,` (p.ej. extractos bancarios españoles). La definición de
@@ -222,3 +264,14 @@ los ficheros exportados desde otra herramienta.
   y `cliente_id` opcional, y su vista de consumo
   (`migraciones/008_idea_consumo.sql`, con `LEFT JOIN` a `cliente` porque el
   vínculo es opcional).
+- Hito 10: nuevo modelo de escritura para cargas de fichero
+  (`campos_singularidad` + promoción en bloque, tabla hall opcional con
+  `transformacion_sql`), sustituyendo al upsert fila a fila y a la
+  `estrategia: reemplazar` intermedia (ver `_decisiones`,
+  `migraciones/010_modelo_carga_singularidad.sql`). Toda escritura masiva
+  pasa por DataFrame: la carga real de `previ_transporte`
+  (`migraciones/009_previ_transporte.sql`, 497.383 filas de previsión de
+  costes de transporte) pasó de no terminar en 10 minutos a completarse en
+  22s, y reejecutarla deja 497.383 filas (sustituye, no duplica).
+  `movimientos_banco` se migró al mismo modelo (`campos_singularidad` = la
+  antigua clave de upsert) y sigue sin duplicar.
