@@ -32,7 +32,7 @@ def _leer_csv(ruta: Path, delimitador: str, fila_cabecera: int, encoding: str):
     return cabecera, [dict(zip(cabecera, fila)) for fila in datos]
 
 
-def _leer_excel(ruta: Path, hoja, fila_cabecera: int):
+def _leer_excel_openpyxl(ruta: Path, hoja, fila_cabecera: int):
     import openpyxl
 
     wb = openpyxl.load_workbook(ruta, data_only=True, read_only=True)
@@ -46,6 +46,45 @@ def _leer_excel(ruta: Path, hoja, fila_cabecera: int):
     cabecera = [str(c) if c is not None else "" for c in filas[fila_cabecera - 1]]
     datos = filas[fila_cabecera:]
     return cabecera, [dict(zip(cabecera, fila)) for fila in datos]
+
+
+def _leer_excel_duckdb(ruta: Path, hoja: str):
+    """Lee el xlsx con la extensión `excel` de DuckDB.
+
+    Medido sobre un fichero de 44,8 MB y 497.383 filas: 8 s frente a los 71 s
+    de openpyxl, que parsea el XML en Python.
+
+    `all_varchar=true` deja todos los valores como texto, igual que hace el
+    lector de CSV, para que sea el mapping declarado —y no el lector— quien
+    decida los tipos. Efecto secundario deseable: una celda con fecha real de
+    Excel llega como serial ("46101") en vez de como `datetime`, y el serial sí
+    lo resuelve `motor/fechas.py`; con openpyxl esa misma celda hacía fallar el
+    parseo y la fila acababa rechazada.
+    """
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute("INSTALL excel; LOAD excel;")
+        consulta = f"SELECT * FROM read_xlsx('{ruta.as_posix()}', sheet=?, all_varchar=true)"
+        cursor = con.execute(consulta, [hoja])
+        cabecera = [d[0] for d in cursor.description]
+        filas = cursor.fetchall()
+    finally:
+        con.close()
+    return cabecera, [dict(zip(cabecera, fila)) for fila in filas]
+
+
+def _leer_excel(ruta: Path, hoja, fila_cabecera: int):
+    # El lector de DuckDB toma la primera fila como cabecera y necesita el
+    # nombre de la hoja; fuera de ese caso, y si la extensión no está
+    # disponible (requiere red la primera vez), se usa openpyxl.
+    if fila_cabecera == 1 and isinstance(hoja, str) and hoja:
+        try:
+            return _leer_excel_duckdb(ruta, hoja)
+        except Exception:
+            pass
+    return _leer_excel_openpyxl(ruta, hoja, fila_cabecera)
 
 
 def leer_fichero(ruta: Path, definicion: dict):

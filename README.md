@@ -319,6 +319,28 @@ así que el escaneo ya es rápido; los índices ART sirven para lookups muy
 selectivos y para restricciones `UNIQUE`, y penalizan la escritura — mal
 negocio en tablas que se recargan enteras en cada carga.
 
+## Lectura de ficheros xlsx
+
+Los xlsx los lee la extensión `excel` de DuckDB (`read_xlsx` con
+`all_varchar=true`), tanto al cargar como al perfilar. Con openpyxl como
+respaldo si la extensión no está disponible —requiere red la primera vez— o si
+la carga declara `fila_cabecera` distinta de 1, caso que el lector nativo no
+cubre.
+
+Medido sobre un fichero de 44,8 MB y 497.383 filas: **4,9 s frente a 23,4 s**.
+Comparados ambos lectores fila a fila sobre ese fichero: misma cabecera, mismo
+número de filas y **cero celdas distintas tras el mapping**.
+
+`all_varchar=true` deja los valores como texto, igual que el lector de CSV, de
+modo que sea el mapping declarado —y no el lector— quien decida los tipos. Eso
+además corrige un fallo latente: una celda con fecha real de Excel llega como
+serial (`"46101"`), que `motor/fechas.py` sí resuelve, mientras que con
+openpyxl llegaba como `datetime` y el parseo fallaba, rechazando la fila.
+
+Perfilado y carga usan el mismo lector a propósito: perfilar con uno distinto
+del que luego carga daría un esquema que describe datos que no son los que van
+a entrar.
+
 ## Vocabulario de operaciones ETL
 
 `rename` · `cast` (`varchar`/`integer`/`double`/`boolean`/`date`) · `trim` ·
@@ -476,3 +498,8 @@ los ficheros exportados desde otra herramienta.
   disfrazadas de número). `--limite N` en `definir` y `esquema` muestrea
   parando la lectura (2,7 s frente a 37 s en el xlsx de previsiones),
   avisando de que el tipo inferido ya no está garantizado.
+- Hito 15: lectura de xlsx con la extensión `excel` de DuckDB en carga y
+  perfilado (4,9 s frente a 23,4 s en el fichero de previsiones), con openpyxl
+  de respaldo. Verificado comparando ambos lectores fila a fila: cero celdas
+  distintas tras el mapping sobre 497.383 filas. De paso corrige que una celda
+  con fecha real de Excel acabara rechazando la fila.

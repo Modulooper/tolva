@@ -74,7 +74,43 @@ def _leer_muestra_csv(ruta: Path, delimitador: str, fila_cabecera: int, encoding
     return filas[fila_cabecera - 1], filas[fila_cabecera:tope], hay_mas
 
 
+def _leer_muestra_excel_duckdb(ruta: Path, hoja, limite=None):
+    """Mismo lector que usa la carga (`motor_etl._leer_excel_duckdb`).
+
+    Perfilar con un lector distinto del que luego carga daría un esquema que
+    describe datos que no son los que van a entrar: openpyxl devuelve una
+    fecha de Excel como `datetime` y el de DuckDB como serial, y el tipo
+    aparente saldría distinto.
+    """
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute("INSTALL excel; LOAD excel;")
+        origen = "read_xlsx(?, all_varchar=true)" if not hoja else "read_xlsx(?, sheet=?, all_varchar=true)"
+        parametros = [ruta.as_posix()] if not hoja else [ruta.as_posix(), hoja]
+        sql = f"SELECT * FROM {origen}"
+        if limite is not None:
+            sql += f" LIMIT {int(limite) + 1}"
+        cursor = con.execute(sql, parametros)
+        cabecera = [d[0] for d in cursor.description]
+        filas = cursor.fetchall()
+    finally:
+        con.close()
+    hay_mas = limite is not None and len(filas) > limite
+    return cabecera, filas[:limite] if limite is not None else filas, hay_mas
+
+
 def _leer_muestra_excel(ruta: Path, hoja, fila_cabecera: int, limite=None):
+    if fila_cabecera == 1 and not isinstance(hoja, int):
+        try:
+            return _leer_muestra_excel_duckdb(ruta, hoja, limite)
+        except Exception:
+            pass
+    return _leer_muestra_excel_openpyxl(ruta, hoja, fila_cabecera, limite)
+
+
+def _leer_muestra_excel_openpyxl(ruta: Path, hoja, fila_cabecera: int, limite=None):
     import openpyxl
 
     wb = openpyxl.load_workbook(ruta, data_only=True, read_only=True)
