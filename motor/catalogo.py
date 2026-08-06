@@ -10,7 +10,7 @@ from pathlib import Path
 
 import jsonschema
 
-from . import validaciones
+from . import historial, validaciones
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOGO_DIR = ROOT / "catalogo"
@@ -37,6 +37,7 @@ SCHEMA_ENTIDAD = {
                 "additionalProperties": False,
             },
         },
+        "historial": historial.SCHEMA_HISTORIAL,
         "relaciones": {
             "type": "array",
             "items": {

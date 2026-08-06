@@ -21,7 +21,7 @@ from pathlib import Path
 
 import jsonschema
 
-from . import catalogo, operaciones, salidas, validaciones
+from . import catalogo, historial, operaciones, parametros, salidas, validaciones
 
 ROOT = Path(__file__).resolve().parent.parent
 CARGAS_DIR = ROOT / "cargas"
@@ -30,6 +30,11 @@ SCHEMA_DEFINICION = {
     "type": "object",
     "properties": {
         "nombre": {"type": "string", "minLength": 1},
+        # No es un rótulo: es para qué se hace esta carga y qué trae el fichero.
+        # El mapping ya dice a qué columna va cada cosa; esto dice lo que el
+        # mapping no puede — de dónde sale el fichero, qué es una fila, qué
+        # significa volver a subirlo. El mínimo corta los "Carga de bancos".
+        "descripcion": {"type": "string", "minLength": 40},
         "carpeta": {"type": "string", "minLength": 1},
         "patron": {"type": "string", "minLength": 1},
         "formato": {"enum": ["csv", "excel"]},
@@ -43,6 +48,8 @@ SCHEMA_DEFINICION = {
         "campos_singularidad": {"type": "array", "items": {"type": "string"}},
         "validaciones": {"type": "array", "items": validaciones.SCHEMA_VALIDACION},
         "salidas": {"type": "array", "items": salidas.SCHEMA_SALIDA},
+        "historial": historial.SCHEMA_HISTORIAL,
+        "parametros": {"type": "array", "items": parametros.SCHEMA_PARAMETRO},
         "acciones": {
             "type": "array",
             "items": {
@@ -72,6 +79,7 @@ SCHEMA_DEFINICION = {
     },
     "required": [
         "nombre",
+        "descripcion",
         "carpeta",
         "patron",
         "formato",
@@ -106,13 +114,52 @@ def usa_hall(definicion: dict) -> bool:
     return "tabla_hall" in definicion
 
 
+def avisos(definicion: dict) -> list:
+    """Cosas que no invalidan la definición pero conviene mirar antes de cargar.
+
+    Hoy solo una, y es la que más caro sale: un parámetro obligatorio que no
+    entra en la singularidad. Si la tienda no forma parte de la clave que se
+    borra, recargar el fichero de una tienda se lleva por delante las filas de
+    las demás. No es error porque hay casos legítimos (un comentario no
+    identifica nada), pero conviene verlo.
+    """
+    campos_singularidad = definicion.get("campos_singularidad", [])
+    if not campos_singularidad:
+        # Sin singularidad la carga es acumulativa a propósito: no borra nada.
+        return []
+
+    destino_de = {}
+    for campo in definicion.get("mapping", []):
+        for op in campo.get("operaciones", []):
+            if op.get("tipo") == "parametro":
+                destino_de[op["nombre"]] = campo["destino"]
+
+    avisos_ = []
+    for parametro in parametros.declarados(definicion):
+        if not parametro.get("obligatorio"):
+            continue
+        destino = destino_de.get(parametro["nombre"])
+        if destino and destino not in campos_singularidad:
+            avisos_.append(
+                f"el parámetro obligatorio '{parametro['nombre']}' llega a '{destino}', "
+                f"que no está en campos_singularidad {campos_singularidad}: al recargar, "
+                f"el fichero de un valor borrará las filas de los demás"
+            )
+    return avisos_
+
+
 def validar(definicion: dict, con=None) -> list:
     """Devuelve la lista de errores encontrados (vacía si es válida). No lanza excepción."""
     errores = []
     try:
         jsonschema.validate(definicion, SCHEMA_DEFINICION)
     except jsonschema.ValidationError as exc:
-        errores.append(f"estructura inválida: {exc.message}")
+        # Sin la ruta, un "'Carga de bancos' is too short" no dice qué campo
+        # hay que arreglar. jsonschema la trae en json_path ($.descripcion).
+        ubicacion = exc.json_path.removeprefix("$.") if exc.json_path != "$" else ""
+        errores.append(
+            f"estructura inválida{f' en {ubicacion}' if ubicacion else ''}: {exc.message}"
+        )
         return errores
 
     if definicion["formato"] == "csv" and "delimitador" not in definicion:
@@ -123,18 +170,34 @@ def validar(definicion: dict, con=None) -> list:
     if tiene_hall != tiene_transform:
         errores.append("'tabla_hall' y 'transformacion_sql' van siempre juntos, o ninguno de los dos")
 
+    parametros_declarados = parametros.nombres(definicion)
+    parametros_usados = set()
+
     destinos = []
     for campo in definicion["mapping"]:
         destinos.append(campo["destino"])
-        if "origen" not in campo and not any(
-            op.get("tipo") == "const" for op in campo.get("operaciones", [])
-        ):
-            errores.append(f"campo '{campo['destino']}' no tiene 'origen' ni una operación 'const'")
+        tipos_op = {op.get("tipo") for op in campo.get("operaciones", [])}
+        if "origen" not in campo and not tipos_op & {"const", "parametro"}:
+            errores.append(
+                f"campo '{campo['destino']}' no tiene 'origen' ni una operación 'const' o 'parametro'"
+            )
         for op in campo.get("operaciones", []):
             try:
                 operaciones.validar_operacion(op)
             except ValueError as exc:
                 errores.append(f"campo '{campo['destino']}': {exc}")
+            if op.get("tipo") == "parametro":
+                parametros_usados.add(op["nombre"])
+                if op["nombre"] not in parametros_declarados:
+                    errores.append(
+                        f"campo '{campo['destino']}': usa el parámetro '{op['nombre']}', "
+                        f"que no está en 'parametros' {sorted(parametros_declarados) or '(vacío)'}"
+                    )
+
+    for huerfano in sorted(parametros_declarados - parametros_usados):
+        errores.append(
+            f"el parámetro '{huerfano}' está declarado pero no lo usa ningún campo del mapping"
+        )
 
     if len(set(destinos)) != len(destinos):
         errores.append("hay campos destino duplicados en el mapping")

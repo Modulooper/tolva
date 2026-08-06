@@ -12,6 +12,8 @@ from . import (
     cargas,
     consultas,
     db,
+    diagrama,
+    documentos,
     esquema,
     export,
     ideas,
@@ -205,12 +207,15 @@ def _cmd_etl_validar(args: argparse.Namespace) -> int:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
     print("OK: definición válida")
+    print(f"\n{definicion['nombre']}: {definicion['descripcion']}")
+    for aviso in cargas.avisos(definicion):
+        print(f"AVISO: {aviso}")
     return 0
 
 
 def _cmd_etl_dry_run(args: argparse.Namespace) -> int:
     try:
-        resultado = motor_etl.dry_run_carga(args.carga)
+        resultado = motor_etl.dry_run_carga(args.carga, valores_parametros=_parametros_de(args))
     except (ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -230,9 +235,22 @@ def _cmd_etl_dry_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parametros_de(args: argparse.Namespace) -> dict:
+    """Convierte los --parametro nombre=valor en un diccionario."""
+    valores = {}
+    for crudo in args.parametro or []:
+        if "=" not in crudo:
+            raise ValueError(f"--parametro espera 'nombre=valor', recibido '{crudo}'")
+        nombre, valor = crudo.split("=", 1)
+        valores[nombre.strip()] = valor
+    return valores
+
+
 def _cmd_etl_ejecutar(args: argparse.Namespace) -> int:
     try:
-        resultado = motor_etl.ejecutar_carga(args.carga, forzar=args.forzar)
+        resultado = motor_etl.ejecutar_carga(
+            args.carga, forzar=args.forzar, valores_parametros=_parametros_de(args)
+        )
     except (ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -342,7 +360,8 @@ def _cmd_ticket_crear(args: argparse.Namespace) -> int:
     try:
         try:
             ticket_id, resultados = tickets.crear(
-                con, args.cliente, args.persona, args.concepto, args.importe, args.fecha, args.descripcion
+                con, args.cliente, args.persona, args.concepto, args.importe, args.fecha,
+                args.descripcion, args.documento,
             )
         except validaciones.StopError as exc:
             print(f"ERROR: no se creó el ticket.\n{exc}", file=sys.stderr)
@@ -409,7 +428,8 @@ def _cmd_idea_crear(args: argparse.Namespace) -> int:
     try:
         try:
             idea_id, resultados = ideas.crear(
-                con, args.persona, args.texto, cliente=args.cliente, estado=args.estado, fecha=args.fecha
+                con, args.persona, args.texto, cliente=args.cliente, estado=args.estado,
+                fecha=args.fecha, documento=args.documento,
             )
         except validaciones.StopError as exc:
             print(f"ERROR: no se creó la idea.\n{exc}", file=sys.stderr)
@@ -471,6 +491,90 @@ def _cmd_idea_borrar(args: argparse.Namespace) -> int:
         con.close()
 
 
+def _cmd_db_diagrama(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        avisos = diagrama.desajustes(con)
+        vistas = diagrama.vistas_de_consumo(con)
+    finally:
+        con.close()
+
+    # Con la valla de ```mermaid se renderiza tal cual en el chat, en GitHub y
+    # en Obsidian; en un terminal es texto inocuo.
+    print("```mermaid")
+    print(diagrama.mermaid(completo=args.completo))
+    print("```")
+
+    print("\n| tabla | qué es | campos |")
+    print("|---|---|---|")
+    for tabla, descripcion, campos in diagrama.resumen():
+        print(f"| `{tabla}` | {descripcion} | {campos} |")
+
+    declaradas = diagrama.cargas_declaradas()
+    if declaradas:
+        print("\n### Cómo entran los datos\n")
+        for nombre, destino, descripcion in declaradas:
+            # Flecha ASCII a propósito: la consola de Windows va en cp1252 y
+            # una flecha U+2192 revienta el comando con UnicodeEncodeError.
+            print(f"**`{nombre}` -> `{destino}`** — {descripcion}\n")
+
+    if vistas:
+        print("\nVistas de consumo: " + ", ".join(f"`{v}`" for v in vistas))
+    if not args.completo:
+        print("\n(campos de sistema ocultos; `--completo` los muestra)")
+    for aviso in avisos:
+        print(f"AVISO: {aviso}")
+    return 0
+
+
+def _cmd_documento_adjuntar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            hash_doc = documentos.adjuntar(con, args.tabla, args.id, args.ruta, args.tag)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(f"Documento adjuntado a {args.tabla} {args.id}: {hash_doc[:12]}… (tag '{args.tag or documentos.TAG_ORIGEN}')")
+        return 0
+    finally:
+        con.close()
+
+
+def _cmd_documento_listar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        if args.tabla and args.id:
+            columnas, filas = documentos.de_fila(con, args.tabla, args.id)
+        elif args.ejecucion:
+            columnas, filas = documentos.de_ejecucion(con, args.ejecucion)
+        else:
+            columnas, filas = documentos.listar(con)
+    finally:
+        con.close()
+    _imprimir_tabla(columnas, filas)
+    return 0
+
+
+def _cmd_documento_purgar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        candidatos = documentos.purgar(con, aplicar=args.aplicar)
+    finally:
+        con.close()
+    if not candidatos:
+        print("Nada que purgar: todos los documentos los conserva algún proceso.")
+        return 0
+    liberado = sum(fila[2] for fila in candidatos) / 1024 / 1024
+    verbo = "Purgados" if args.aplicar else "Se purgarían"
+    print(f"{verbo} {len(candidatos)} documentos ({liberado:.1f} MB)")
+    _imprimir_tabla(["hash", "nombre", "bytes", "ruta"], candidatos)
+    if not args.aplicar:
+        print("\nEn seco. Repite con --aplicar para liberar los bytes.")
+        print("La ficha de cada documento se conserva: solo se vacía el contenido.")
+    return 0
+
+
 def _cmd_proceso_analizar(args: argparse.Namespace) -> int:
     valores = [v.strip() for v in args.valores.split(",")] if args.valores else []
 
@@ -525,6 +629,9 @@ def main(argv=None) -> int:
     db_sub.add_parser("migrar", help="Aplica migraciones pendientes")
     consultar_parser = db_sub.add_parser("consultar", help="Ejecuta SQL y muestra el resultado")
     consultar_parser.add_argument("sql")
+    diagrama_parser = db_sub.add_parser("diagrama", help="Diagrama Mermaid del modelo, desde el catálogo")
+    diagrama_parser.add_argument("--completo", action="store_true",
+                                 help="Incluye también los campos de sistema")
     uso_parser = db_sub.add_parser("uso", help="Uso real del almacén según las consultas registradas")
     uso_parser.add_argument("--minimo", type=int, default=3, help="Repeticiones para considerar recurrente")
 
@@ -555,9 +662,13 @@ def main(argv=None) -> int:
     validar_parser.add_argument("carga")
     dry_run_parser = etl_sub.add_parser("dry-run", help="Ejecuta sin escribir en el almacén")
     dry_run_parser.add_argument("carga")
+    dry_run_parser.add_argument("--parametro", action="append", metavar="NOMBRE=VALOR",
+                                help="Valor de un parámetro declarado por la carga (repetible)")
     ejecutar_parser = etl_sub.add_parser("ejecutar", help="Ejecuta una carga")
     ejecutar_parser.add_argument("carga")
     ejecutar_parser.add_argument("--forzar", action="store_true", help="Reprocesa aunque el hash ya esté OK")
+    ejecutar_parser.add_argument("--parametro", action="append", metavar="NOMBRE=VALOR",
+                                help="Valor de un parámetro declarado por la carga (repetible)")
     etl_sub.add_parser("estado", help="Últimas ejecuciones registradas")
     exportar_parser = etl_sub.add_parser("exportar", help="Exporta una vista de consumo a /export")
     exportar_parser.add_argument("vista")
@@ -575,6 +686,7 @@ def main(argv=None) -> int:
     crear_parser.add_argument("--importe", required=True, type=float)
     crear_parser.add_argument("--fecha", required=True, type=date.fromisoformat)
     crear_parser.add_argument("--descripcion", default=None)
+    crear_parser.add_argument("--documento", default=None, help="Justificante del que salen los datos (foto, pdf)")
 
     listar_parser = ticket_sub.add_parser("listar", help="Lista tickets")
     listar_parser.add_argument("--cliente", default=None)
@@ -602,6 +714,7 @@ def main(argv=None) -> int:
     idea_crear_parser.add_argument("--cliente", default=None)
     idea_crear_parser.add_argument("--estado", default=None, choices=list(ideas.ESTADOS_VALIDOS))
     idea_crear_parser.add_argument("--fecha", default=None, type=date.fromisoformat)
+    idea_crear_parser.add_argument("--documento", default=None, help="Fichero de origen de la idea")
 
     idea_listar_parser = idea_sub.add_parser("listar", help="Lista ideas")
     idea_listar_parser.add_argument("--persona", default=None)
@@ -620,6 +733,23 @@ def main(argv=None) -> int:
     idea_borrar_parser = idea_sub.add_parser("borrar", help="Borra una idea")
     idea_borrar_parser.add_argument("id")
 
+    documento_parser = subparsers.add_parser("documento", help="Documentos archivados y su historial")
+    documento_sub = documento_parser.add_subparsers(dest="command", required=True)
+
+    adjuntar_parser = documento_sub.add_parser("adjuntar", help="Adjunta un fichero a un registro")
+    adjuntar_parser.add_argument("tabla", help="Tabla del registro (ticket, idea...)")
+    adjuntar_parser.add_argument("id", help="Id del registro")
+    adjuntar_parser.add_argument("ruta", help="Ruta del fichero a archivar")
+    adjuntar_parser.add_argument("--tag", default=None, help="Etiqueta del documento (p.ej. 'justificante pago')")
+
+    doc_listar_parser = documento_sub.add_parser("listar", help="Lista documentos archivados")
+    doc_listar_parser.add_argument("--tabla", default=None, help="Con --id, documentos de ese registro")
+    doc_listar_parser.add_argument("--id", default=None, help="Id del registro")
+    doc_listar_parser.add_argument("--ejecucion", default=None, type=int, help="Documentos de una ejecución")
+
+    purgar_parser = documento_sub.add_parser("purgar", help="Libera los bytes que ningún proceso conserva")
+    purgar_parser.add_argument("--aplicar", action="store_true", help="Borra de verdad (por defecto va en seco)")
+
     proceso_parser = subparsers.add_parser("proceso", help="Análisis de solapamiento para entidades nuevas")
     proceso_sub = proceso_parser.add_subparsers(dest="command", required=True)
     analizar_parser = proceso_sub.add_parser("analizar", help="Comprueba solapamiento de un campo propuesto")
@@ -637,6 +767,8 @@ def main(argv=None) -> int:
             return _cmd_db_consultar(args)
         if args.command == "uso":
             return _cmd_db_uso(args)
+        if args.command == "diagrama":
+            return _cmd_db_diagrama(args)
 
     if args.namespace == "etl":
         if args.command == "definir":
@@ -675,6 +807,14 @@ def main(argv=None) -> int:
             return _cmd_idea_editar(args)
         if args.command == "borrar":
             return _cmd_idea_borrar(args)
+
+    if args.namespace == "documento":
+        if args.command == "adjuntar":
+            return _cmd_documento_adjuntar(args)
+        if args.command == "listar":
+            return _cmd_documento_listar(args)
+        if args.command == "purgar":
+            return _cmd_documento_purgar(args)
 
     if args.namespace == "proceso":
         if args.command == "analizar":

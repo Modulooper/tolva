@@ -35,7 +35,8 @@
         "lista_valores": [
           "viajes",
           "hoteles",
-          "gasolina"
+          "gasolina",
+          "otros"
         ]
       }
     },
@@ -64,6 +65,13 @@
       "sinonimos": [
         "Fecha"
       ]
+    },
+    "ejecucion_id": {
+      "tipo": "integer",
+      "obligatorio": false,
+      "sistema": true,
+      "descripcion": "Ejecución que creó el registro. Las ediciones posteriores no lo cambian: se encadenan a ella vía _ejecuciones.ejecucion_id_principal. Nulo en filas anteriores a la migración 013.",
+      "sinonimos": []
     },
     "created_at": {
       "tipo": "timestamp",

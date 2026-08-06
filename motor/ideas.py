@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from . import validaciones
+from . import documentos, ejecuciones, validaciones
 
 ESTADOS_VALIDOS = ("pendiente", "en_curso", "descartada", "hecha")
 
@@ -24,7 +24,8 @@ def resolver_cliente(con, nombre: str) -> str:
     return _resolver(con, "cliente", nombre)
 
 
-def crear(con, persona: str, texto: str, cliente: str = None, estado: str = None, fecha: date = None) -> str:
+def crear(con, persona: str, texto: str, cliente: str = None, estado: str = None,
+          fecha: date = None, documento=None) -> str:
     if estado is not None and estado not in ESTADOS_VALIDOS:
         raise ValueError(f"estado '{estado}' no válido, debe ser uno de {ESTADOS_VALIDOS}")
     persona_id = resolver_persona(con, persona)
@@ -41,15 +42,19 @@ def crear(con, persona: str, texto: str, cliente: str = None, estado: str = None
         columnas.append("fecha")
         valores.append(fecha)
 
-    placeholders = ", ".join("?" for _ in valores)
-
-    def escribir():
-        return con.execute(
-            f"INSERT INTO idea ({', '.join(columnas)}) VALUES ({placeholders}) RETURNING id",
-            valores,
+    def escribir(ejecucion_id):
+        cols = columnas + ["ejecucion_id"]
+        vals = valores + [ejecucion_id]
+        placeholders = ", ".join("?" for _ in vals)
+        idea_id = con.execute(
+            f"INSERT INTO idea ({', '.join(cols)}) VALUES ({placeholders}) RETURNING id",
+            vals,
         ).fetchone()[0]
+        if documento:
+            documentos.archivar(con, documento, ejecucion_id)
+        return idea_id
 
-    return validaciones.proteger_escritura(con, "idea", escribir)
+    return ejecuciones.envolver(con, "idea.crear", "idea", escribir)
 
 
 def listar(con, persona: str = None, cliente: str = None, estado: str = None, desde: date = None, hasta: date = None):
@@ -104,10 +109,15 @@ def editar(con, idea_id: str, **campos) -> None:
     set_clause = ", ".join(f"{c} = ?" for c in campos_presentes) + ", updated_at = current_timestamp"
     parametros = list(campos_presentes.values()) + [idea_id]
 
-    def escribir():
+    def escribir(_ejecucion_id):
         con.execute(f"UPDATE idea SET {set_clause} WHERE id = ?", parametros)
 
-    _, resultados = validaciones.proteger_escritura(con, "idea", escribir)
+    # La edición no toca idea.ejecucion_id: se encadena a la ejecución que
+    # creó la fila y queda como historial de esa principal.
+    principal = ejecuciones.principal_de(con, "idea", idea_id)
+    _, resultados = ejecuciones.envolver(
+        con, "idea.editar", "idea", escribir, principal=principal
+    )
     return resultados
 
 
@@ -115,4 +125,9 @@ def borrar(con, idea_id: str) -> None:
     existe = con.execute("SELECT count(*) FROM idea WHERE id = ?", [idea_id]).fetchone()[0]
     if not existe:
         raise ValueError(f"no existe idea con id '{idea_id}'")
+    # Se lee la principal antes de borrar: después la fila ya no está y el
+    # borrado quedaría suelto, sin la vida del registro a la que pertenece.
+    principal = ejecuciones.principal_de(con, "idea", idea_id)
+    ejecucion_id = ejecuciones.registrar(con, "idea.borrar", principal=principal)
     con.execute("DELETE FROM idea WHERE id = ?", [idea_id])
+    ejecuciones.marcar(con, ejecucion_id, "OK")

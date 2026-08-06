@@ -40,6 +40,12 @@ SCHEMAS = {
         "required": ["tipo", "valor"],
         "additionalProperties": False,
     },
+    "parametro": {
+        "type": "object",
+        "properties": {"tipo": {"const": "parametro"}, "nombre": {"type": "string", "minLength": 1}},
+        "required": ["tipo", "nombre"],
+        "additionalProperties": False,
+    },
     "date_format": {
         "type": "object",
         "properties": {
@@ -100,6 +106,12 @@ def _aplicar_const(valor, params, contexto):
     return params["valor"]
 
 
+def _aplicar_parametro(valor, params, contexto):
+    """Como const, pero el valor se resuelve al ejecutar la carga en vez de
+    estar escrito en la definición."""
+    return contexto.get("parametros", {}).get(params["nombre"])
+
+
 def _aplicar_date_format(valor, params, contexto):
     return fechas.aplicar_fecha(valor, contexto["resolucion_fecha"])
 
@@ -109,6 +121,7 @@ APLICAR = {
     "trim": _aplicar_trim,
     "cast": _aplicar_cast,
     "const": _aplicar_const,
+    "parametro": _aplicar_parametro,
     "date_format": _aplicar_date_format,
 }
 

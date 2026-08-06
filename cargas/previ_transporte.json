@@ -1,5 +1,6 @@
 {
   "nombre": "previ_transporte",
+  "descripcion": "Prevision de costes de transporte al cierre, tal como la exporta el TMS, para saber cuanto va a costar el transporte del periodo antes de recibir las facturas y poder repartirlo por delegacion y cliente. Cada fila es un albaran con su coste ventilado, su transportista y la unidad de gestion a la que se imputa. El fichero llega como foto completa: cada exportacion sustituye entera a la anterior, por eso la singularidad es origen_carga y no una clave de negocio -- no se acumula historico por recarga. De aqui salen el resumen por delegacion y el detalle en CSV que se usan aguas abajo. Desconfia si el numero de filas cae mucho respecto al cierre anterior: suele significar que la exportacion salio incompleta.",
   "carpeta": "entrada/previ_transporte",
   "patron": "*.xlsx",
   "formato": "excel",

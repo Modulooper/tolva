@@ -1,5 +1,6 @@
 {
   "nombre": "movimientos_banco",
+  "descripcion": "Libro bancario propio: el extracto que se descarga del banco, para tener el movimiento real de la cuenta y poder conciliarlo contra facturas y gastos. Cada fila es un apunte del extracto tal cual lo da el banco (fecha de ejecucion, fecha valor, concepto, importe y saldo resultante), sin interpretar ni categorizar. El extracto se descarga acumulado, asi que un fichero nuevo vuelve a traer movimientos ya cargados: por eso la singularidad es la combinacion de los cinco campos, que es lo unico que identifica un apunte cuando el banco no da un ID de movimiento. Volver a subir el mismo periodo no duplica nada. Desconfia si aparecen saldos que no encadenan con el apunte anterior o fechas fuera del periodo esperado.",
   "carpeta": "entrada/banco",
   "patron": "*.csv",
   "formato": "csv",

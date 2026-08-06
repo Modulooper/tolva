@@ -11,17 +11,16 @@ carga (directa y con tabla hall).
 
 import csv
 import getpass
-import hashlib
 import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import cargas, db, operaciones, salidas, validaciones
+from . import cargas, db, documentos, operaciones, parametros, salidas, validaciones
 
-
-def _hash_fichero(ruta: Path) -> str:
-    return hashlib.sha256(ruta.read_bytes()).hexdigest()
+# Una sola implementación del hash para todo el sistema: el que identifica la
+# ejecución es el mismo que direcciona el documento en el almacén.
+_hash_fichero = documentos.hash_fichero
 
 
 def _leer_csv(ruta: Path, delimitador: str, fila_cabecera: int, encoding: str):
@@ -106,18 +105,21 @@ class ResultadoProceso:
     columnas_extra: set
 
 
-def procesar_filas(cabecera: list, filas: list, definicion: dict) -> ResultadoProceso:
+def procesar_filas(cabecera: list, filas: list, definicion: dict, valores_parametros=None) -> ResultadoProceso:
     mapping = definicion["mapping"]
     origenes_declarados = {c["origen"] for c in mapping if "origen" in c}
     columnas_extra = {c for c in cabecera if c and c not in origenes_declarados}
+    valores_parametros = valores_parametros or {}
 
     contextos = {}
     for campo in mapping:
         if "origen" not in campo:
-            contextos[campo["destino"]] = {}
+            contextos[campo["destino"]] = {"parametros": valores_parametros}
             continue
         valores_columna = [fila.get(campo["origen"]) for fila in filas]
-        contextos[campo["destino"]] = operaciones.preparar_contexto(campo, valores_columna)
+        contexto = operaciones.preparar_contexto(campo, valores_columna)
+        contexto["parametros"] = valores_parametros
+        contextos[campo["destino"]] = contexto
 
     validas, rechazadas = [], []
     for i, fila in enumerate(filas, start=definicion["fila_cabecera"] + 1):
@@ -285,18 +287,19 @@ def _validar_o_lanzar(definicion: dict, con) -> None:
         raise ValueError("definición inválida: " + "; ".join(errores))
 
 
-def dry_run_carga(nombre_carga: str, db_path=None) -> dict:
+def dry_run_carga(nombre_carga: str, db_path=None, valores_parametros=None) -> dict:
     """Ejecuta sin escribir nada en el almacén. Devuelve resultado y rechazos."""
     definicion = cargas.cargar(nombre_carga)
     con = db.conectar(db_path or db.DB_PATH)
     try:
         _validar_o_lanzar(definicion, con)
+        resueltos = parametros.resolver(con, definicion, valores_parametros)
         carpeta = cargas.carpeta_entrada(definicion)
         ficheros = sorted(carpeta.glob(definicion["patron"]))
         resultados = []
         for ruta in ficheros:
             cabecera, filas = leer_fichero(ruta, definicion)
-            resultado = procesar_filas(cabecera, filas, definicion)
+            resultado = procesar_filas(cabecera, filas, definicion, resueltos)
             resultados.append(
                 {
                     "fichero": ruta.name,
@@ -313,7 +316,8 @@ def dry_run_carga(nombre_carga: str, db_path=None) -> dict:
         con.close()
 
 
-def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
+def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool,
+                      valores_parametros=None, registro_parametros=None) -> dict:
     hash_fichero = _hash_fichero(ruta)
     nombre_carga = definicion["nombre"]
 
@@ -327,7 +331,7 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
 
     inicio = time.perf_counter()
     cabecera, filas = leer_fichero(ruta, definicion)
-    resultado = procesar_filas(cabecera, filas, definicion)
+    resultado = procesar_filas(cabecera, filas, definicion, valores_parametros)
     # Si se llega aquí, el fichero se leyó y procesó fila a fila sin excepción:
     # las filas inválidas quedan en _rechazos, no convierten la ejecución en un fallo.
 
@@ -343,8 +347,9 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
     try:
         ejecucion_id = con.execute(
             """INSERT INTO _ejecuciones
-               (carga, fichero, hash_fichero, filas_leidas, filas_ok, filas_rechazadas, estado, usuario)
-               VALUES (?, ?, ?, ?, ?, ?, 'EN_CURSO', ?) RETURNING id""",
+               (carga, tipo, fichero, hash_fichero, filas_leidas, filas_ok, filas_rechazadas,
+                estado, usuario, parametros)
+               VALUES (?, 'carga', ?, ?, ?, ?, ?, 'EN_CURSO', ?, ?) RETURNING id""",
             [
                 nombre_carga,
                 ruta.name,
@@ -353,8 +358,23 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
                 len(resultado.validas),
                 len(resultado.rechazadas),
                 getpass.getuser(),
+                json.dumps(registro_parametros, default=str, ensure_ascii=False)
+                if registro_parametros
+                else None,
             ],
         ).fetchone()[0]
+        # Una carga es siempre su propia principal (migración 013): el
+        # historial encadenado es cosa de las ediciones del CLI.
+        con.execute(
+            "UPDATE _ejecuciones SET ejecucion_id_principal = id WHERE id = ?",
+            [ejecucion_id],
+        )
+
+        # El fichero que originó la carga queda archivado y vinculado. Si la
+        # carga acaba revertida, los bytes copiados quedan huérfanos en el
+        # almacén, pero al estar direccionados por contenido no estorban: el
+        # siguiente archivado del mismo fichero los reutiliza.
+        documentos.archivar(con, ruta, ejecucion_id, documentos.TAG_ORIGEN)
 
         _ejecutar_acciones(con, definicion, "antes")
         _crear_entrante(con, resultado.validas, ejecucion_id, columnas_mapping)
@@ -434,14 +454,21 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool) -> dict:
     }
 
 
-def ejecutar_carga(nombre_carga: str, forzar: bool = False, db_path=None) -> dict:
+def ejecutar_carga(nombre_carga: str, forzar: bool = False, db_path=None, valores_parametros=None) -> dict:
     definicion = cargas.cargar(nombre_carga)
     con = db.conectar(db_path or db.DB_PATH)
     try:
         _validar_o_lanzar(definicion, con)
+        # Antes de leer nada: si falta un parámetro obligatorio, mejor fallar
+        # aquí que a medio camino con la ejecución ya registrada.
+        resueltos = parametros.resolver(con, definicion, valores_parametros)
+        registro = parametros.registro(definicion, valores_parametros, resueltos)
         carpeta = cargas.carpeta_entrada(definicion)
         ficheros = sorted(carpeta.glob(definicion["patron"]))
-        resumen = [_procesar_fichero(con, definicion, ruta, forzar) for ruta in ficheros]
+        resumen = [
+            _procesar_fichero(con, definicion, ruta, forzar, resueltos, registro)
+            for ruta in ficheros
+        ]
         return {
             "carga": definicion["nombre"],
             "ficheros": resumen,

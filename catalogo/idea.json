@@ -15,6 +15,7 @@
       "validacion": {"lista_valores": ["pendiente", "en_curso", "descartada", "hecha"]}
     },
     "fecha": {"tipo": "date", "obligatorio": true, "descripcion": "Fecha de captura de la idea (por defecto, hoy).", "sinonimos": ["Fecha"]},
+    "ejecucion_id": {"tipo": "integer", "obligatorio": false, "sistema": true, "descripcion": "Ejecución que creó el registro. Las ediciones posteriores no lo cambian: se encadenan a ella vía _ejecuciones.ejecucion_id_principal. Nulo en filas anteriores a la migración 013.", "sinonimos": []},
     "created_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de alta del registro.", "sinonimos": []},
     "updated_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de última modificación.", "sinonimos": []}
   },

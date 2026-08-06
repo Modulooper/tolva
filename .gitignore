@@ -1,5 +1,8 @@
 /datos/*.duckdb
 /datos/*.duckdb.wal
+# Documentos archivados: extractos, facturas y justificantes de clientes.
+# Nunca deben acabar en el repo.
+/datos/documentos/**
 /export/*
 !/export/.gitkeep
 /entrada/**
