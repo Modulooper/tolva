@@ -66,6 +66,40 @@ corresponda (vía FK real, nunca un campo de texto libre con el nombre). Si
 no referencia ninguna, explica por qué en la propuesta — el mismo patrón que
 `movimiento_bancario` (ver su entrada en `_decisiones`).
 
+## 4a. Para qué existe este proceso
+
+La `descripcion` de la ficha de catálogo no es un rótulo: **repetir el nombre
+de la tabla no aporta nada.** Tiene que decir para qué se lleva ese registro
+y qué representa una fila en el mundo real — lo que no se deduce leyendo las
+columnas. Compara:
+
+- ❌ `"Tabla de tickets."`
+- ✅ `"Ticket de gasto (viajes, hoteles, gasolina) atado a un cliente y a la
+  persona que lo generó."`
+
+Redáctala tú a partir de lo que el usuario haya contado y pásasela para que
+la corrija; si algo no lo puedes deducir, pregúntalo en una sola tanda junto
+al resto de la toma de requisitos: para qué se usan estos datos, qué es una
+fila, y quién los mete y cuándo.
+
+Lo mismo para la `descripcion` de cada campo cuando el nombre no baste: en
+`ticket.concepto` lo útil no es "concepto del ticket", es qué categorías hay
+y por qué esas.
+
+## 4b. Trazabilidad: `ejecucion_id` y documentos
+
+Toda tabla con CRUD por CLI lleva `ejecucion_id BIGINT` (nullable, marcado
+`"sistema": true` en el catálogo): guarda la ejecución que **creó** la fila,
+y las ediciones posteriores no lo tocan — se encadenan a ella en
+`_ejecuciones`. Eso es lo que permite colgar documentos del registro
+(`documento adjuntar`) sin duplicar nada, así que inclúyelo en el esquema
+propuesto y hazlo escribir por `ejecuciones.envolver` en el `crear`, igual
+que `motor/tickets.py`.
+
+Si a la entidad se le van a adjuntar justificantes (gastos, facturas,
+contratos), no declares `historial` con recorte: el valor por defecto
+`"siempre"` es lo correcto ahí. Ver README, "Historial de documentos".
+
 ## 5. Propón el esquema y pide aprobación
 
 Antes de escribir nada, muestra en el chat:

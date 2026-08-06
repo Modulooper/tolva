@@ -1,8 +1,8 @@
 # ClaudETL
 
-Plataforma local, monousuario y autónoma sobre DuckDB para gestionar información
-de trabajo propia: procesos de negocio (CRUD) y ETL conversacional de ficheros
-recurrentes. Sin servidor, sin autenticación, sin multiusuario.
+Framework ETL conversacional sobre DuckDB, local, monousuario y autónomo, para
+gestionar información de trabajo propia: procesos de negocio (CRUD) y carga de
+ficheros recurrentes. Sin servidor, sin autenticación, sin multiusuario.
 
 ## Instalación
 
@@ -34,6 +34,29 @@ python -m motor.cli idea listar
 ```
 Ambos deberían devolver "(0 filas)" en una instalación nueva sin errores.
 
+### Batería de pruebas
+
+```bash
+python -m unittest discover -s pruebas -t .
+```
+
+84 pruebas que cubren instalación, motor ETL, singularidad, hall, stops y
+alarmas, salidas, CRUD, trazabilidad, documentos, historial/purga, parámetros,
+diagrama del modelo y descripciones de carga. No hacen falta dependencias
+extra: usan `unittest` de la librería estándar.
+
+Cada prueba corre contra un **almacén temporal recién migrado**, con su propio
+catálogo, cargas y almacén de documentos: ninguna toca `datos/almacen.duckdb`
+ni `datos/documentos/`. El catálogo real se copia al temporal en vez de
+inventarse uno, así que las pruebas comprueban de paso que las fichas del repo
+siguen casando con el esquema que crean las migraciones.
+
+[`pruebas/MANUAL.md`](pruebas/MANUAL.md) complementa la batería con 51
+comprobaciones a mano: lo que ningún test automático puede validar — que el
+flujo conversacional conduzca bien, que los mensajes de error sirvan para
+corregir, que la semántica de la singularidad sea la que esperas, y que los
+ficheros exportados abran bien desde Excel o Power BI.
+
 ### Instalación asistida por IA
 
 Este repo incluye skills de Claude Code en `.claude/skills/` (`definir-carga`,
@@ -60,6 +83,8 @@ vía pensada ni probada para este proyecto.
 /entrada/           carpetas vigiladas donde se depositan los ficheros a cargar (no versionado)
 /export/            vistas de consumo volcadas a parquet/csv
 /datos/almacen.duckdb   estado (no versionado)
+/datos/documentos/  ficheros archivados por su hash: orígenes de carga y
+                    justificantes (no versionado — lleva datos de clientes)
 ```
 
 ## Uso
@@ -75,7 +100,7 @@ python -m motor.cli etl definir <fichero-muestra> [--formato --delimitador --enc
 python -m motor.cli etl esquema <fichero-muestra> --tabla <nombre> [--limite N] [--json]
 python -m motor.cli etl validar <carga>
 python -m motor.cli etl dry-run <carga>
-python -m motor.cli etl ejecutar <carga> [--forzar]
+python -m motor.cli etl ejecutar <carga> [--forzar] [--parametro nombre=valor ...]
 python -m motor.cli etl estado
 
 python -m motor.cli ticket crear --cliente <nombre> --persona <nombre> --concepto <viajes|hoteles|gasolina|otros> --importe <n> --fecha <YYYY-MM-DD> [--descripcion <texto>]
@@ -92,7 +117,22 @@ python -m motor.cli idea borrar <id>
 `cliente`/`persona` se gestionan por ahora con `db consultar` (no tienen
 CRUD propio todavía). En `idea`, `--fecha` es opcional al crear (por defecto
 hoy) y `--cliente` también (una idea no tiene por qué estar ligada a un
-cliente concreto).
+cliente concreto). `ticket crear` e `idea crear` aceptan `--documento <ruta>`
+para archivar en el mismo alta el justificante del que salen los datos.
+
+```bash
+python -m motor.cli documento adjuntar <tabla> <id> <ruta> [--tag <etiqueta>]
+python -m motor.cli documento listar [--tabla <tabla> --id <id>] [--ejecucion <n>]
+python -m motor.cli documento purgar [--aplicar]
+```
+
+`documento adjuntar` sirve para lo que llega después del alta (un justificante
+de pago, un comprobante): el `--tag` es texto libre y lo agrupa todo bajo el
+mismo registro. `documento purgar` va **en seco** salvo que se pase
+`--aplicar`, y nunca borra la ficha de un documento: libera los bytes y lo
+deja como `purgado`, para que el rastro de qué fichero originó cada dato
+sobreviva a la limpieza. Cuánto se conserva lo decide el bloque `historial`
+de cada proceso (ver [Historial de documentos](#historial-de-documentos)).
 
 ```bash
 python -m motor.cli proceso analizar --campo <nombre-propuesto> [--valores v1,v2,...] [--umbral 0.5] [--json]
@@ -344,8 +384,11 @@ a entrar.
 ## Vocabulario de operaciones ETL
 
 `rename` · `cast` (`varchar`/`integer`/`double`/`boolean`/`date`) · `trim` ·
-`const` · `date_format`. Un tipo no registrado aquí se rechaza en
-`etl validar`, no en `etl ejecutar`.
+`const` · `parametro` · `date_format`. Un tipo no registrado aquí se rechaza
+en `etl validar`, no en `etl ejecutar`.
+
+`parametro` es como `const`, pero el valor se resuelve al ejecutar la carga en
+vez de estar escrito en la definición (ver "Parámetros").
 
 `date_format` nunca delega el parseo al modelo: si dos formatos candidatos
 son ambiguos en día/mes (`%d/%m/%Y` vs `%m/%d/%Y`), se resuelve por evidencia
@@ -377,6 +420,122 @@ completo explicando cada decisión no obvia (formato de fecha, formato
 numérico, clave de upsert), y solo tras tu aprobación guarda
 `/cargas/<nombre>.json`, valida y enseña el `dry-run`. Nunca ejecuta la
 carga sin que confirmes el dry-run primero.
+
+## La descripción de una carga: el para qué, no un rótulo
+
+Toda carga declara una `descripcion` **obligatoria**. No es un título: el
+mapping ya dice a qué columna va cada cosa, así que esto tiene que decir lo
+que el JSON no puede.
+
+Cinco cosas que debe cubrir:
+
+1. **Para qué se carga** — qué se decide, se factura o se informa con estos
+   datos. Sin esto, dentro de un año nadie sabe si la carga sigue haciendo
+   falta.
+2. **De dónde sale el fichero** — quién lo manda, cada cuánto, y si viene
+   exportado a mano (lo que explica que cambien las columnas).
+3. **Qué es una fila** en el mundo real.
+4. **Qué significa volver a subirlo corregido** — qué porción sustituye.
+5. **Qué haría desconfiar** al abrirlo.
+
+El punto 4 es deliberado: es `campos_singularidad` contado en palabras. Si la
+descripción dice *"sustituye el mes entero de ese centro"* y la definición
+declara `["fecha"]`, **la contradicción se ve sin ejecutar nada**. Por eso el
+skill `definir-carga` la escribe antes de elegir la clave, no después.
+
+La redacta la IA a partir del perfilado y de una tanda de preguntas directas,
+y tú la corriges — un campo que pide "documenta aquí" se queda vacío; un
+borrador concreto se enmienda. Se muestra en `etl validar` y en
+`db diagrama`, donde explica el modelo tanto como las relaciones.
+
+El mismo criterio rige la `descripcion` de las fichas de `/catalogo`: decir
+qué representa un registro, no repetir el nombre de la tabla.
+
+## Parámetros: lo que no viene dentro del fichero
+
+Veinte tiendas mandan el mismo export de pedidos (fecha, producto, importe) y
+la tienda no aparece en ninguna columna. Eso se declara como parámetro y se
+pide al ejecutar:
+
+```json
+"parametros": [
+  {"nombre": "tienda", "obligatorio": true,
+   "descripcion": "Tienda de la que viene este fichero",
+   "valores_de": {"tabla": "tienda", "etiqueta": "nombre"}},
+  {"nombre": "comentario", "obligatorio": false}
+]
+```
+
+Con `valores_de` la lista es **cerrada**: el valor se resuelve contra esa tabla
+por nombre (sin distinguir mayúsculas) y lo que llega a la fila es su id; si no
+existe, el error lista los valores disponibles. Sin `valores_de` es **texto
+libre**. Sin `obligatorio`, opcional.
+
+El valor llega a las filas por el mapping, con la operación `parametro`:
+
+```json
+{"destino": "tienda_id", "operaciones": [{"tipo": "parametro", "nombre": "tienda"}]}
+```
+
+Se hace por el mapping, y no por un canal aparte, para que un parámetro se
+comporte igual que cualquier otra columna: mismas operaciones encadenables
+detrás y mismo tratamiento en la hall y en las transformaciones.
+
+```bash
+python -m motor.cli etl ejecutar pedidos --parametro tienda="Gran Vía" --parametro comentario="fichero corregido"
+```
+
+Falta un obligatorio y la carga corta **antes de leer el fichero**. Los valores
+contestados quedan en `_ejecuciones.parametros`, guardando de una lista cerrada
+las dos caras —lo que se tecleó y el id al que resolvió— para que renombrar la
+tienda mañana no deje la ejecución ilegible.
+
+**El parámetro casi siempre debe entrar en `campos_singularidad`**, junto a
+alguna columna del fichero (fecha, producto). Si no está, recargar el fichero
+de una tienda borra las filas de las demás, porque las combinaciones que se
+borran no distinguen la tienda. `etl validar` lo avisa:
+
+```
+AVISO: el parámetro obligatorio 'tienda' llega a 'tienda_id', que no está en
+campos_singularidad ['fecha', 'producto']: al recargar, el fichero de un valor
+borrará las filas de los demás
+```
+
+**Límite conocido**: la idempotencia sigue siendo por hash del fichero. Dos
+tiendas que manden ficheros byte a byte idénticos harán que el segundo se omita
+como "ya procesado"; hay que cargarlo con `--forzar`. Es una decisión explícita
+(ver `_decisiones`, migración 016), no un descuido.
+
+## Historial de documentos
+
+Todo fichero que entra se archiva en `datos/documentos/`, direccionado por su
+SHA-256: el mismo fichero subido dos veces ocupa una sola vez. Las cargas
+archivan su origen solas; en el CLI se adjunta con `--documento` al crear o
+con `documento adjuntar` después.
+
+Cuánto se conserva lo declara cada proceso, en `/cargas/<nombre>.json` o en
+`/catalogo/<tabla>.json`:
+
+```json
+"historial": "siempre"
+"historial": {"tipo": "ficheros", "cantidad": 10}
+"historial": {"tipo": "anios",    "cantidad": 3}
+"historial": {"tipo": "ficheros", "cantidad": 10, "tags_exentos": ["justificante pago"]}
+```
+
+Por defecto es `"siempre"`: no declarar nada no pierde nada. Dos reglas hacen
+que purgar sea seguro:
+
+1. **Se vacían los bytes, nunca la ficha.** El documento queda como `purgado`
+   con su `fecha_purga`. Se sigue sabiendo de qué fichero salió cada línea
+   aunque ya no se pueda abrir; si la purga borrase el metadato, rompería la
+   trazabilidad que la justifica.
+2. **Se conserva si lo conserva algún proceso.** Un mismo fichero puede colgar
+   de una carga con historial corto y de un ticket con `"siempre"`. La
+   decisión se toma sobre la unión de todos los procesos, nunca uno a uno.
+
+Reponer un fichero purgado (volver a cargarlo o adjuntarlo) lo devuelve a
+`disponible`: el hash garantiza que el contenido es exactamente el mismo.
 
 ## Vistas de consumo y export
 
@@ -503,3 +662,94 @@ los ficheros exportados desde otra herramienta.
   de respaldo. Verificado comparando ambos lectores fila a fila: cero celdas
   distintas tras el mapping sobre 497.383 filas. De paso corrige que una celda
   con fecha real de Excel acabara rechazando la fila.
+- Hito 16: trazabilidad de ejecuciones (`motor/ejecuciones.py`,
+  `migraciones/013_trazabilidad_ejecuciones.sql`). `_ejecuciones` deja de ser
+  el diario de las cargas de fichero para registrar **toda escritura del
+  sistema**: gana `tipo` (`carga`/`cli`) y `ejecucion_id_principal`, que en una
+  creación o una carga apunta a sí misma. `id = ejecucion_id_principal` da las
+  ejecuciones principales y `ejecucion_id_principal = N AND id <> N` el
+  historial de cambios de N. `ticket` e `idea` guardan en `ejecucion_id` solo
+  la ejecución de creación, así que editar no toca la fila: crear, editar y
+  borrar quedan encadenados bajo la misma principal. Se descarta llevar el
+  hash del fichero a las tablas de ingesta por redundante: se recupera por
+  join desde `ejecucion_id`. `fichero` y `hash_fichero` pasan a nullable
+  porque una operación de CLI no tiene fichero; para alterarlos hay que
+  recrear `_rechazos`, cuya FK impedía tocar la tabla referenciada.
+- Hito 17: almacén de documentos (`motor/documentos.py`,
+  `migraciones/014_documentos.sql`). Los ficheros se archivan en
+  `datos/documentos/<hash[:2]>/<hash><ext>` direccionados por su SHA-256:
+  `_documentos` guarda los atributos del contenido (nombre, tamaño, mime,
+  `estado`) y `_ejecucion_documento` el vínculo con la ejecución, donde vive
+  el `tag` — texto libre (`crear`, `justificante pago`, `doc AB545`) porque
+  califica el uso y no el contenido. Como toda escritura deja ejecución y las
+  modificaciones se encadenan a la de creación (hito 16), `documentos.de_fila`
+  devuelve de una vez todos los documentos de la vida de un registro, tanto el
+  que lo originó como los que se añadan después. Las cargas archivan su
+  fichero de origen automáticamente con tag `crear`. Deduplicación verificada:
+  dos ejecuciones del mismo CSV dejan un documento y dos vínculos. El hash se
+  calcula por bloques de 1 MB y es el mismo que identifica la ejecución (una
+  sola implementación), verificado sobre el xlsx de 45 MB. `datos/documentos/`
+  entra en `.gitignore` desde el primer día: son extractos y justificantes de
+  clientes.
+- Hito 18: historial declarativo y purga (`motor/historial.py`,
+  `migraciones/015_historial_documentos.sql`). Cada proceso declara cuánto
+  conserva con un bloque `historial` en `/cargas/<nombre>.json` o
+  `/catalogo/<tabla>.json`: `"siempre"` (por defecto),
+  `{"tipo":"ficheros","cantidad":N}`, `{"tipo":"anios","cantidad":N}`, con
+  `tags_exentos` opcional. `documento purgar` va en seco salvo `--aplicar`,
+  libera los bytes y marca `estado = 'purgado'` **sin borrar nunca la ficha**,
+  así que se sigue sabiendo de qué fichero salió cada dato. Un documento se
+  conserva si lo conserva algún proceso: la decisión se toma sobre la unión,
+  nunca proceso a proceso. Verificado que un documento fuera de la retención
+  de su carga sobrevive mientras siga vinculado a un ticket, que al aplicar la
+  purga la ficha queda con `fecha_purga` y los bytes desaparecen, y que volver
+  a cargar el fichero lo repone a `disponible`.
+- Hito 19: CLI de documentos (`documento adjuntar|listar|purgar`) y
+  `--documento` en `ticket crear` / `idea crear`, para archivar el justificante
+  del que salen los datos en el mismo alta. `documento adjuntar <tabla> <id>
+  <ruta> --tag` abre una ejecución encadenada a la de creación, de modo que un
+  justificante de pago que llega semanas después aparece junto a la foto del
+  alta en `documento listar --tabla ticket --id <id>`. Adjuntar sobre un
+  registro anterior a la migración 013 falla con un mensaje explícito en vez de
+  inventarle una cadena.
+- Hito 20: parámetros de carga (`motor/parametros.py`,
+  `migraciones/016_parametros_carga.sql`). Una carga declara `parametros`:
+  valores que no vienen dentro del fichero y se piden al ejecutarla — la tienda
+  de la que llega este export de pedidos, un comentario libre. Con `valores_de`
+  la lista es cerrada y se resuelve contra una tabla por nombre, listando los
+  disponibles si falla; sin él, texto libre. Llegan a las filas por el mapping,
+  con la operación nueva `parametro`, para que se comporten igual que cualquier
+  otra columna. Falta un obligatorio y la carga corta antes de leer el fichero.
+  Los valores contestados quedan en `_ejecuciones.parametros`, guardando de una
+  lista cerrada tanto lo tecleado como el id resuelto, para que renombrar la
+  tienda no deje la ejecución ilegible. `etl validar` avisa si un parámetro
+  obligatorio no entra en `campos_singularidad`, que es el error caro: recargar
+  el fichero de una tienda borraría las filas de las demás. Verificado con dos
+  tiendas sobre el mismo fichero: recargar una sustituye solo sus filas
+  (`sustituidas=3`) y deja intactas las de la otra. La idempotencia sigue
+  siendo por hash, decisión explícita: dos ficheros idénticos de tiendas
+  distintas exigen `--forzar` en el segundo.
+- Hito 21: batería de pruebas (`/pruebas`, `python -m unittest discover -s
+  pruebas -t .`). 69 pruebas sobre `unittest` de la librería estándar, sin
+  dependencias nuevas, cubriendo instalación desde cero, motor ETL,
+  singularidad, hall, stops y alarmas, salidas, CRUD, trazabilidad, documentos,
+  historial/purga y parámetros. Cada una corre contra un almacén temporal
+  recién migrado con su propio catálogo, cargas y almacén de documentos, así
+  que la suite no puede tocar los datos reales. Comprueba además dos
+  invariantes del repo: que el esquema de una instalación nueva coincide con el
+  del almacén migrado incrementalmente, y que toda migración deja su entrada en
+  `_decisiones` (salvo la de arranque, que es quien crea esa tabla).
+- Hito 22: descripción obligatoria de cada carga (`descripcion` en
+  `/cargas/*.json`, `migraciones/017_descripcion_cargas.sql`) enfocada al para
+  qué y no a lo descriptivo: para qué se cargan los datos, de dónde sale el
+  fichero, qué es una fila, qué sustituye una versión corregida y qué haría
+  desconfiar. El skill `definir-carga` la redacta desde el perfilado más una
+  tanda de preguntas directas y la sitúa **antes** de elegir
+  `campos_singularidad`, porque la pregunta "qué sustituye un fichero
+  corregido" es esa clave contada en palabras: si prosa y clave no coinciden,
+  la contradicción se ve sin ejecutar nada. Se muestra en `etl validar` y en
+  una sección nueva de `db diagrama`. Los errores de esquema ahora nombran el
+  campo que falla (`estructura inválida en descripcion: ...`), que antes había
+  que adivinar. De paso se corrigió que `db diagrama` abortaba con
+  `UnicodeEncodeError` en consola cp1252 por una flecha U+2192, con una prueba
+  que vigila los `print` del motor.

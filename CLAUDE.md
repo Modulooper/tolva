@@ -1,7 +1,7 @@
 # ClaudETL — instrucciones para Claude Code
 
-Plataforma local sobre DuckDB para gestionar información de trabajo propia
-(procesos de negocio y ETL de ficheros recurrentes) de forma conversacional:
+Framework ETL conversacional local sobre DuckDB para gestionar información de
+trabajo propia (procesos de negocio y ETL de ficheros recurrentes):
 la IA no es un asistente que ejecuta comandos sueltos, es la interfaz
 principal para modelar datos, cargar ficheros y llevar el día a día.
 
@@ -49,6 +49,14 @@ todavía no sabe qué puede pedir:
   `etl exportar` para enlazar desde Excel/Power BI, y `salidas`: ficheros
   xlsx/CSV/parquet desde un `SELECT` libre, con nombre por fecha
   (`20260805_previ_ok.xlsx`), generados solos al terminar la carga.
+- **Todo lo que escribe deja rastro, y el fichero de origen se guarda**: cada
+  carga y cada alta o edición del CLI registra su ejecución, y el fichero del
+  que salieron los datos se archiva por su hash. Así se llega desde una fila
+  hasta el fichero que la trajo. A un registro se le pueden colgar documentos
+  después (`documento adjuntar`, con un `--tag` libre: el justificante de pago
+  que llega semanas más tarde queda junto a la foto del alta). Cada proceso
+  declara cuánto conserva (`historial`), y purgar vacía los bytes pero nunca
+  la ficha: se sigue sabiendo de qué fichero venía cada dato.
 - **Todo lo decidido queda escrito** en `_decisiones` con su porqué, para que
   dentro de seis meses se sepa por qué `mes` es texto.
 
@@ -77,7 +85,15 @@ en vez de listarlos todos en el chat.
   poder cargarse o referenciarse desde otra carga.
 - DuckDB no soporta `ALTER TABLE ... DROP/ADD CONSTRAINT`: para cambiar un
   `CHECK` hay que recrear la tabla dentro de la migración (ver
-  `006_ticket_concepto_otros.sql` como ejemplo).
+  `006_ticket_concepto_otros.sql` como ejemplo). Tampoco admite `ADD COLUMN`
+  con constraint (ni `CHECK` ni FK), ni alterar una tabla que sea destino de
+  una FK ajena: para eso hay que apartar y recrear la que referencia (ver
+  `013_trazabilidad_ejecuciones.sql` con `_rechazos`). Por eso los
+  `ejecucion_id` del modelo son referencias lógicas sin FK declarada.
+- **La purga de documentos no se ejecuta sola**: hoy solo corre si alguien
+  lanza `documento purgar --aplicar`. Va en seco por defecto y borra los
+  ficheros directamente, sin papelera. No la lances por iniciativa propia;
+  propónsela al usuario y que decida.
 - **Nada de escribir volumen fila a fila.** DuckDB es columnar y degrada de
   forma no lineal con `INSERT` por fila: medido, 1.000 filas por SQL tardan
   ~13s frente a ~0,35s por 500.000 vía DataFrame. Usa

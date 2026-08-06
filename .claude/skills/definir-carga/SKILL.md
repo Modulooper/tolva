@@ -94,6 +94,43 @@ Si `tipo_aparente` marca `double (formato_numerico: es)`, añade
 `"formato_numerico": "es"` al `cast`. Si el fichero mezcla formatos o no
 estás seguro, pregunta.
 
+## 5b. Para qué se hace esta carga
+
+Antes de decidir nada del mapping fino, escribe la `descripcion` de la carga
+(campo obligatorio de la definición). **No es un rótulo.** El JSON ya dice a
+qué columna va cada cosa; esto tiene que decir lo que el JSON no puede.
+
+Cinco cosas que debe cubrir:
+
+1. **Para qué se carga** — qué se decide, se factura o se informa con estos
+   datos. Es lo primero y lo más importante: sin esto, dentro de un año nadie
+   sabe si la carga sigue haciendo falta.
+2. **De dónde sale el fichero** — quién lo genera o lo manda, cada cuánto, y
+   si viene exportado a mano (lo que explica que cambien las columnas).
+3. **Qué es una fila** en el mundo real, no en la tabla.
+4. **Qué significa volver a subirlo corregido** — qué porción debe sustituir.
+5. **Qué te haría desconfiar** al abrirlo.
+
+**Redáctala tú primero y pásasela al usuario para que la corrija.** Un campo
+que dice "documenta aquí tu carga" se queda vacío o se rellena con el nombre
+del fichero; un borrador concreto sí se enmienda. Ya sabes bastante del paso
+2 (perfil) y del 3 (catálogo): rellena lo que puedas y **pregunta solo lo que
+no puedas deducir**, en una sola tanda, no de una en una:
+
+> Antes de fijar el mapping, cuéntame cuatro cosas de este fichero:
+> ¿para qué usáis estos datos?, ¿quién lo manda y cada cuánto?, ¿qué es una
+> fila?, y si te llega uno corregido, ¿qué debería sustituir — solo su
+> periodo, la foto entera, o nada porque solo añade?
+
+La cuarta pregunta es la del paso 6 formulada en palabras, y ese es el punto:
+**si la descripción y `campos_singularidad` no dicen lo mismo, uno de los dos
+está mal**, y ahí se ve sin ejecutar nada. Escribir "sustituye el mes entero
+de ese centro" y luego declarar `["fecha"]` es una contradicción visible.
+
+Lo que responda el usuario en prosa alimenta además el paso 6c (stops) y el
+6e (parámetros): "cada fichero es de una tienda" es un parámetro, y "si bajan
+mucho las filas es que salió incompleto" es una alarma.
+
 ## 6. Campos de singularidad
 
 Las cargas de fichero no hacen upsert fila a fila: declaran
@@ -139,6 +176,47 @@ o de anomalías reales que hayas visto al perfilar (fechas fuera de rango,
 importes negativos, códigos sin correspondencia), y confírmalas antes de
 darlas por buenas. Si una regla vale para la tabla venga el dato de donde
 venga, va en `/catalogo/<tabla>.json` en vez de en la carga.
+
+## 6d. ¿Cuánto se conserva del fichero de origen?
+
+Cada carga archiva su fichero en `datos/documentos/` por el hash del
+contenido, así que desde cualquier fila se llega al fichero que la trajo. Lo
+que hay que decidir es cuánto se guarda, con el bloque `historial` de la
+definición:
+
+```json
+"historial": "siempre"
+"historial": {"tipo": "ficheros", "cantidad": 10}
+"historial": {"tipo": "anios",    "cantidad": 3}
+```
+
+Por defecto es `"siempre"`, así que **no declarar nada no pierde nada**: no
+lo pongas por rellenar. Pregúntalo solo si el fichero es grande o llega muy
+a menudo, que es cuando el espacio importa — un extracto de 4 KB mensual no
+justifica la conversación. Ver README, "Historial de documentos".
+
+## 6e. ¿Hay datos que no vienen dentro del fichero?
+
+Si el fichero no contiene algo que hace falta para saber a qué se refiere —el
+caso típico es un mismo formato que llega de varios sitios: veinte tiendas
+mandando el mismo export de pedidos—, eso se declara como `parametros` y se
+pide al ejecutar. Ver README, "Parámetros".
+
+Detectarlo es fácil al perfilar: si dos ficheros de la misma carpeta tienen
+las mismas columnas pero corresponden a ámbitos distintos, falta un
+parámetro. Pregúntalo cuando el usuario mencione varias tiendas, delegaciones,
+clientes o centros para el mismo formato.
+
+Al proponerlo, decide con el usuario dos cosas:
+
+1. **Cerrado o abierto.** Si el valor ya existe como tabla (`tienda`,
+   `cliente`, `delegacion`), va con `valores_de` para que no se teclee mal.
+   Si no existe tabla, texto libre — y plantéate si no debería existir
+   (skill `crear-proceso`).
+2. **Si entra en `campos_singularidad`.** Casi siempre sí, junto a alguna
+   columna del fichero. Si no entra, recargar el fichero de una tienda borra
+   las filas de las demás. `etl validar` lo avisa, pero es mejor decidirlo
+   antes que descubrirlo por el aviso.
 
 ## 7. Construye el borrador y muéstralo
 
