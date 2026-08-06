@@ -12,3 +12,6 @@
 __pycache__/
 *.pyc
 .venv/
+# Capa propia: cargas, catálogo y migraciones de cada instalación.
+# Es su propio repositorio git, privado. Nunca sale del repo público.
+/propio/**

@@ -40,9 +40,9 @@ Ambos deberían devolver "(0 filas)" en una instalación nueva sin errores.
 python -m unittest discover -s pruebas -t .
 ```
 
-84 pruebas que cubren instalación, motor ETL, singularidad, hall, stops y
+90 pruebas que cubren instalación, motor ETL, singularidad, hall, stops y
 alarmas, salidas, CRUD, trazabilidad, documentos, historial/purga, parámetros,
-diagrama del modelo y descripciones de carga. No hacen falta dependencias
+diagrama del modelo, descripciones de carga y separación núcleo/capa propia. No hacen falta dependencias
 extra: usan `unittest` de la librería estándar.
 
 Cada prueba corre contra un **almacén temporal recién migrado**, con su propio
@@ -85,7 +85,38 @@ vía pensada ni probada para este proyecto.
 /datos/almacen.duckdb   estado (no versionado)
 /datos/documentos/  ficheros archivados por su hash: orígenes de carga y
                     justificantes (no versionado — lleva datos de clientes)
+/propio/            tus cargas, catálogo y migraciones (no versionado aquí:
+                    es tu repositorio git aparte — ver "Núcleo y capa propia")
 ```
+
+## Núcleo y capa propia
+
+El framework y lo que tú cargas con él no viven en el mismo sitio:
+
+| | Dónde | Se versiona en |
+|---|---|---|
+| **Núcleo** | `migraciones/`, `catalogo/`, `cargas/` | este repositorio |
+| **Capa propia** | `propio/migraciones/`, `propio/catalogo/`, `propio/cargas/` | el tuyo, privado |
+
+`motor/rutas.py` resuelve las dos capas de forma transparente: `db migrar`
+aplica las migraciones del núcleo **y después** las tuyas, y el catálogo y las
+cargas se suman. Trabajas siempre sobre este repositorio, con lo tuyo colgando
+de `propio/`; no mantienes dos copias del framework.
+
+Dos reglas:
+
+- **El núcleo se aplica primero.** Una migración tuya puede apoyarse en tablas
+  del framework; al revés nunca. Por eso una tabla tuya declara su
+  `ejecucion_id` en su propia migración en vez de esperar a que se lo añada
+  una del núcleo.
+- **Si coincide el nombre, gana la capa propia.** Permite adaptar una ficha de
+  catálogo o una carga sin bifurcar el repositorio.
+
+La separación es **por directorio, no por disciplina**: los ficheros de una
+carga real no pueden colarse en un commit del framework porque no están en su
+árbol. La numeración del núcleo tiene huecos donde una migración era de
+negocio y se movió a la capa propia; es intencionado y no rompe nada, porque
+`_migraciones` indexa por nombre de fichero.
 
 ## Uso
 
@@ -753,3 +784,16 @@ los ficheros exportados desde otra herramienta.
   que adivinar. De paso se corrigió que `db diagrama` abortaba con
   `UnicodeEncodeError` en consola cp1252 por una flecha U+2192, con una prueba
   que vigila los `print` del motor.
+- Hito 23: separación núcleo / capa propia (`motor/rutas.py`,
+  `migraciones/018_capa_propia.sql`). El framework vive en `migraciones/`,
+  `catalogo/` y `cargas/`; lo que cada uno carga con él, en `propio/` con la
+  misma estructura, fuera del control de versiones del núcleo. `db migrar`
+  aplica el núcleo primero y las propias después —una migración propia puede
+  apoyarse en tablas del framework, nunca al revés—, y si coincide el nombre
+  gana la capa propia, lo que permite adaptar una ficha sin bifurcar el repo.
+  La separación es por directorio y no por disciplina: los ficheros de una
+  carga real no pueden colarse en un commit del framework porque no están en su
+  árbol. Al mover la primera carga salió un acoplamiento que no se veía:
+  `012_validaciones.sql`, del núcleo, hacía `ALTER TABLE` sobre una tabla de
+  negocio, así que la instalación limpia de un tercero se habría roto; ahora
+  una prueba falla si el núcleo vuelve a referenciar una tabla propia.

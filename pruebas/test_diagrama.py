@@ -15,11 +15,26 @@ class PruebaDiagrama(PruebaConAlmacen):
                 self.assertIn(f"    {catalogo.cargar_entidad(nombre)['tabla']} {{", salida)
 
     def test_solo_las_relaciones_declaradas_marcan_clave_ajena(self):
-        """Deducir la FK del sufijo '_id' da falsos positivos."""
+        """Deducir la FK del sufijo '_id' da falsos positivos.
+
+        El caso real que lo motivó era `previ_transporte.oracle_carrier_id`,
+        un código del sistema de origen que no apunta a ninguna tabla. Vive en
+        la capa propia, así que aquí se reproduce con una ficha sintética: una
+        prueba del framework no puede depender de la carga de nadie.
+        """
+        self.escribir_catalogo(self.ficha_catalogo("albaran", {
+            "id": ("uuid", True),
+            "cliente_id": ("uuid", True),      # sí tiene relación declarada
+            "carrier_externo_id": ("integer", False),  # código ajeno, no es FK
+        }, relaciones=[
+            {"campo": "cliente_id", "entidad_destino": "cliente",
+             "campo_destino": "id", "tipo": "N:1"},
+        ]))
+
         salida = diagrama.mermaid()
         self.assertIn("string cliente_id FK", salida)
-        self.assertIn("int oracle_carrier_id", salida)
-        self.assertNotIn("oracle_carrier_id FK", salida)
+        self.assertIn("int carrier_externo_id", salida)
+        self.assertNotIn("carrier_externo_id FK", salida)
 
     def test_cardinalidad_segun_obligatoriedad(self):
         salida = diagrama.mermaid()

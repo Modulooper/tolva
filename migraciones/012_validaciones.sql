@@ -19,7 +19,11 @@ CREATE TABLE _validaciones_disparadas (
 
 -- ejecucion_id permite borrar/inspeccionar exactamente lo que metió una
 -- ejecución concreta, sin depender de los campos de negocio.
-ALTER TABLE previ_transporte ADD COLUMN ejecucion_id BIGINT;
+--
+-- Solo se toca aquí lo que vive en el núcleo. Una tabla de la capa propia se
+-- crea con su ejecucion_id en su propia migración: el framework no puede
+-- alterar tablas que no sabe si existen, y las migraciones propias se aplican
+-- después de las del núcleo (ver motor/rutas.py).
 ALTER TABLE movimiento_bancario ADD COLUMN ejecucion_id BIGINT;
 
 INSERT INTO _decisiones (tipo, descripcion, evidencia, migracion_asociada) VALUES (

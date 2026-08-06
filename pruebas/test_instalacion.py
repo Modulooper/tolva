@@ -19,23 +19,33 @@ class PruebaInstalacion(PruebaConAlmacen):
 
         Si divergen, una instalación nueva se comporta distinto que la del
         usuario que lleva meses migrando, y eso no avisa por ningún lado.
+
+        Compara solo las tablas del núcleo: el almacén real puede tener además
+        las de la capa propia (`propio/migraciones`), que esta instalación
+        limpia no aplica a propósito. Lo que se exige es que **cada tabla del
+        núcleo tenga exactamente las mismas columnas en los dos caminos**.
         """
         if not db.DB_PATH.exists():
             self.skipTest("no hay almacén incremental con el que comparar")
 
-        def retrato(con):
-            columnas = con.execute(
+        def columnas_por_tabla(con):
+            filas = con.execute(
                 "SELECT table_name, column_name, data_type, is_nullable "
                 "FROM information_schema.columns"
             ).fetchall()
-            vistas = con.execute(
-                "SELECT view_name FROM duckdb_views() WHERE internal = false"
-            ).fetchall()
-            return set(columnas), set(vistas)
+            por_tabla = {}
+            for tabla, columna, tipo, nullable in filas:
+                por_tabla.setdefault(tabla, set()).add((columna, tipo, nullable))
+            return por_tabla
 
         vivo = duckdb.connect(str(db.DB_PATH), read_only=True)
         try:
-            self.assertEqual(retrato(self.con), retrato(vivo))
+            nuevo, existente = columnas_por_tabla(self.con), columnas_por_tabla(vivo)
+            faltan = sorted(set(nuevo) - set(existente))
+            self.assertEqual(faltan, [], f"la instalación limpia crea tablas que no están en el almacén real: {faltan}")
+            for tabla, columnas in nuevo.items():
+                with self.subTest(tabla=tabla):
+                    self.assertEqual(columnas, existente[tabla])
         finally:
             vivo.close()
 

@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from motor import cargas, catalogo, db, documentos, salidas
+from motor import cargas, catalogo, db, documentos, rutas, salidas
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,19 +36,28 @@ class PruebaConAlmacen(unittest.TestCase):
         for carpeta in (self.cargas_dir, self.entrada_dir, self.export_dir):
             carpeta.mkdir(parents=True, exist_ok=True)
 
-        self.db_path = self.tmp / "almacen.duckdb"
-        self.migraciones_aplicadas = db.migrar(self.db_path)
+        # La capa propia apunta al temporal y arranca sin existir: las pruebas
+        # que la necesiten crean sus carpetas con `carpeta_propia()`.
+        self.propio_dir = self.tmp / "propio"
 
         self._originales = {
             (catalogo, "CATALOGO_DIR"): catalogo.CATALOGO_DIR,
             (cargas, "CARGAS_DIR"): cargas.CARGAS_DIR,
             (documentos, "DOCUMENTOS_DIR"): documentos.DOCUMENTOS_DIR,
             (salidas, "EXPORT_DIR"): salidas.EXPORT_DIR,
+            (rutas, "PROPIO_DIR"): rutas.PROPIO_DIR,
         }
         catalogo.CATALOGO_DIR = self.catalogo_dir
         cargas.CARGAS_DIR = self.cargas_dir
         documentos.DOCUMENTOS_DIR = self.documentos_dir
         salidas.EXPORT_DIR = self.export_dir
+        rutas.PROPIO_DIR = self.propio_dir
+
+        # Migrar DESPUÉS de redirigir la capa propia: si no, la suite aplicaría
+        # las migraciones privadas de quien tenga el repo, y dejaría de probar
+        # el framework para probar su instalación concreta.
+        self.db_path = self.tmp / "almacen.duckdb"
+        self.migraciones_aplicadas = db.migrar(self.db_path)
 
         self.con = db.conectar(self.db_path)
 
@@ -68,6 +77,12 @@ class PruebaConAlmacen(unittest.TestCase):
         ruta = carpeta / nombre_fichero
         ruta.write_text(contenido, encoding="utf-8")
         return ruta
+
+    def carpeta_propia(self, nombre: str):
+        """Crea y devuelve `propio/<nombre>` en el temporal."""
+        carpeta = self.propio_dir / nombre
+        carpeta.mkdir(parents=True, exist_ok=True)
+        return carpeta
 
     def escribir_carga(self, definicion: dict) -> str:
         """Guarda la definición y devuelve su nombre.

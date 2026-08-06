@@ -64,7 +64,7 @@ def politicas() -> dict:
     from . import cargas, catalogo
 
     declaradas = {}
-    for ruta in sorted(cargas.CARGAS_DIR.glob("*.json")):
+    for ruta in cargas.listar_definiciones():
         definicion = cargas.cargar(str(ruta))
         if "historial" in definicion:
             declaradas[definicion["nombre"]] = definicion["historial"]

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import jsonschema
 
-from . import catalogo, historial, operaciones, parametros, salidas, validaciones
+from . import catalogo, historial, operaciones, parametros, rutas, salidas, validaciones
 
 ROOT = Path(__file__).resolve().parent.parent
 CARGAS_DIR = ROOT / "cargas"
@@ -95,7 +95,15 @@ def ruta_definicion(nombre_o_ruta: str) -> Path:
     p = Path(nombre_o_ruta)
     if p.suffix == ".json" and p.exists():
         return p
-    return CARGAS_DIR / f"{nombre_o_ruta}.json"
+    encontrada = rutas.resolver("cargas", f"{nombre_o_ruta}.json", CARGAS_DIR)
+    # Si no está en ninguna capa se devuelve la del núcleo: quien llama ya
+    # comprueba la existencia y da el mensaje de "no existe la definición".
+    return encontrada if encontrada is not None else CARGAS_DIR / f"{nombre_o_ruta}.json"
+
+
+def listar_definiciones() -> list:
+    """Rutas de todas las definiciones, núcleo y capa propia."""
+    return rutas.ficheros("cargas", "*.json", CARGAS_DIR)
 
 
 def carpeta_entrada(definicion: dict) -> Path:

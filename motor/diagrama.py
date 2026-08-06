@@ -83,7 +83,7 @@ def cargas_declaradas() -> list:
     from . import cargas
 
     declaradas = []
-    for ruta in sorted(cargas.CARGAS_DIR.glob("*.json")):
+    for ruta in cargas.listar_definiciones():
         definicion = cargas.cargar(str(ruta))
         declaradas.append(
             (

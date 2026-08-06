@@ -10,7 +10,7 @@ from pathlib import Path
 
 import jsonschema
 
-from . import historial, validaciones
+from . import historial, rutas, validaciones
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOGO_DIR = ROOT / "catalogo"
@@ -63,12 +63,12 @@ SCHEMA_ENTIDAD = {
 
 
 def listar_entidades() -> list:
-    return sorted(p.stem for p in CATALOGO_DIR.glob("*.json"))
+    return rutas.nombres("catalogo", "*.json", CATALOGO_DIR)
 
 
 def cargar_entidad(nombre: str) -> dict:
-    ruta = CATALOGO_DIR / f"{nombre}.json"
-    if not ruta.exists():
+    ruta = rutas.resolver("catalogo", f"{nombre}.json", CATALOGO_DIR)
+    if ruta is None:
         raise FileNotFoundError(f"no hay entrada de catálogo para '{nombre}'")
     entidad = json.loads(ruta.read_text(encoding="utf-8"))
     jsonschema.validate(entidad, SCHEMA_ENTIDAD)

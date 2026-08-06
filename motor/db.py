@@ -6,6 +6,8 @@ from pathlib import Path
 
 import duckdb
 
+from . import rutas
+
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "datos" / "almacen.duckdb"
 MIGRACIONES_DIR = ROOT / "migraciones"
@@ -36,7 +38,9 @@ def _aplicadas(con: duckdb.DuckDBPyConnection) -> set:
 
 
 def _pendientes(migraciones_dir: Path, aplicadas: set) -> list:
-    ficheros = sorted(migraciones_dir.glob("*.sql"))
+    # Núcleo primero y capa propia después: una migración propia puede
+    # apoyarse en tablas del framework, nunca al revés (ver motor/rutas.py).
+    ficheros = rutas.ficheros("migraciones", "*.sql", migraciones_dir)
     return [f for f in ficheros if f.name not in aplicadas]
 
 
