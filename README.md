@@ -1,8 +1,100 @@
 # ClaudETL
 
-Framework ETL conversacional sobre DuckDB, local, monousuario y autónomo, para
-gestionar información de trabajo propia: procesos de negocio (CRUD) y carga de
-ficheros recurrentes. Sin servidor, sin autenticación, sin multiusuario.
+**Un ETL con el que se habla.** Cuentas lo que necesitas llevar; él decide si
+eso pide una tabla nueva, un CRUD o una carga de fichero, te lo propone con
+evidencia, y solo lo escribe cuando dices que sí.
+
+Local, monousuario y autónomo, sobre DuckDB. Sin servidor, sin autenticación,
+sin nube. Todo vive en un fichero en tu disco.
+
+## Qué problema resuelve
+
+Casi todo el mundo tiene información de trabajo que no cabe en una herramienta
+y no merece una: el Excel de gastos, el extracto que descargas cada mes, la
+lista de cosas pendientes, el export del ERP que abres y cruzas a mano. Montar
+una base de datos para eso cuesta más de lo que ahorra, así que no se monta, y
+al final hay tres nombres para la misma cosa repartidos en cinco ficheros.
+
+ClaudETL asume que el trabajo de modelar es conversación, y que lo caro no es
+escribir el `CREATE TABLE` sino decidir qué va dentro. Los comandos existen
+—están documentados más abajo— pero son el suelo, no la interfaz.
+
+## Cómo se ve
+
+```
+> quiero llevar las tareas que tengo pendientes
+
+Ya existe `idea`, y sus tres filas son tareas: "Publicar el proyecto en
+GitHub", "Pensar un nombre". El análisis dice que `estado` coincide con
+`idea.estado`, y que `cliente` solapa 1.0 con la tabla `cliente`, así que
+irá como clave ajena y no como texto.
+
+¿Son lo mismo, o una idea es lo que te gustaría hacer y una tarea lo que
+tienes que hacer?
+
+> lo segundo. y quiero apuntar las horas que me llevó al cerrarla
+
+Propuesta: tabla `tarea` con fecha límite, fecha de cierre y horas reales.
+Dos decisiones que necesito que confirmes...
+```
+
+De ahí sale una migración, una ficha de catálogo y una entrada en
+`_decisiones` explicando por qué, para que dentro de seis meses se sepa.
+
+## Qué hace por dentro
+
+- **Nada se crea a ciegas.** Antes de una tabla nueva se comprueba
+  solapamiento contra el catálogo y contra los datos reales, con evidencia
+  medida y no con criterio.
+- **Al cargar, lo importante es qué sustituye cada fichero.** Se declara una
+  vez (`campos_singularidad`) y volver a subir el informe corregido reemplaza
+  lo que toca en vez de duplicarlo.
+- **Reglas de negocio que cortan.** Un `SELECT` que, si devuelve filas, aborta
+  la carga o solo avisa. Los mismos invariantes rigen para el CRUD.
+- **Todo deja rastro y el fichero de origen se guarda.** Desde una fila se
+  llega al fichero que la trajo, y a los justificantes que se colgaron después.
+- **Tres capas separadas por directorio**: el framework, un dominio de ejemplo
+  para probar, y lo tuyo — que no sale del repositorio.
+
+## Pruébalo en dos minutos
+
+```bash
+git clone <url-del-repo>
+cd ClaudETL
+python -m venv .venv && source .venv/Scripts/activate
+pip install -r requirements.txt
+
+python -m motor.cli db migrar --con-ejemplos
+python -m motor.cli registro listar demo_venta
+python -m motor.cli etl ejecutar demo_ventas
+```
+
+Eso instala un dominio de ejemplo —una librería inventada, con datos dummy— y
+ejecuta una carga real de principio a fin: fichero, transformación, reglas que
+saltan y salida en xlsx. Tu instalación arranca vacía: el framework **no crea
+ninguna tabla de negocio**.
+
+Para trabajar con ello de verdad, ábrelo con [Claude Code](https://claude.com/claude-code)
+y cuéntale qué quieres llevar. El repositorio incluye las skills que guían la
+conversación.
+
+## Dudas, fallos y contribuciones
+
+Abre un **issue**. Se responde ahí y no por correo a propósito: así la
+respuesta queda pública y la encuentra el siguiente con la misma duda.
+
+Antes de un pull request, que pase la batería:
+
+```bash
+python -m unittest discover -s pruebas -t .
+```
+
+**Seguridad**: si encuentras una vulnerabilidad, no abras un issue público.
+Escribe a modulooper@gmail.com y se coordina el arreglo antes de publicarlo.
+
+## Licencia
+
+[MIT](LICENSE).
 
 ## Instalación
 
@@ -696,272 +788,6 @@ Query los abra sin conflicto. Si vas a dejar una consulta interactiva abierta
 contra `almacen.duckdb` (p. ej. desde un notebook), ciérrala antes de abrir
 los ficheros exportados desde otra herramienta.
 
-## Estado actual
+## Historial de versiones
 
-- Hito 1: estructura del repo, migración núcleo (`persona`, `cliente`, `proyecto`
-  + tablas de sistema `_ejecuciones`, `_rechazos`, `_decisiones`) y CLI mínima
-  (`db migrar`, `db consultar`).
-- Hito 2: motor ETL (`motor/cargas.py`, `motor/operaciones.py`, `motor/fechas.py`,
-  `motor/motor_etl.py`) con las 5 primeras operaciones del vocabulario,
-  idempotencia por hash de fichero, upsert por clave declarada, rechazos con
-  motivo y `extra_fields` para columnas no declaradas. CLI `etl validar`,
-  `etl dry-run`, `etl ejecutar [--forzar]`, `etl estado`.
-- Hito 3: primera carga real (`cargas/movimientos_banco.json` +
-  `migraciones/002_movimiento_bancario.sql`) sobre extractos bancarios reales
-  (CSV `;`, cp1252, números en formato español). La clave de upsert
-  (fecha_ejecucion, fecha_valor, concepto, importe, saldo) hace que subir el
-  extracto acumulado del mes, mes a mes, solo añada los movimientos nuevos.
-  Validado con dry-run y con reejecución sobre un extracto que solapaba
-  movimientos ya cargados: no duplicó ninguno.
-- Hito 4: catálogo semántico (`motor/catalogo.py` + `/catalogo/*.json` para
-  `persona`, `cliente`, `proyecto`, `movimiento_bancario`). `cargas.validar`
-  rechaza cualquier campo de mapping no declarado en el catálogo de la tabla
-  destino, y cualquier tabla destino sin entrada de catálogo, sin necesitar
-  conexión a la base.
-- Hito 5: perfilado de ficheros de muestra (`motor/perfil.py`, comando
-  `etl definir`) — tipos aparentes, nulos, cardinalidad, muestra de valores
-  y sugerencias de campo destino cruzando cabeceras contra sinónimos del
-  catálogo. Skill de Claude Code `definir-carga`
-  (`.claude/skills/definir-carga/SKILL.md`) que usa ese perfil para proponer
-  una definición de carga completa, mostrarla para aprobación, y solo
-  entonces guardarla, validarla y enseñar el dry-run.
-- Hito 6: primera tabla de proceso de negocio con CRUD por CLI.
-  `migraciones/004_ticket.sql` (`ticket`, con `cliente_id`/`persona_id` como
-  FK y `concepto` restringido por `CHECK` a viajes/hoteles/gasolina) +
-  `catalogo/ticket.json` + comandos `ticket crear/listar/editar/borrar`.
-  `migraciones/003_ejecuciones_usuario.sql` añade `usuario` (login del SO,
-  sin autenticación) a `_ejecuciones` como semilla para un eventual modo
-  multiusuario futuro; las filas anteriores a la migración quedan como
-  `'desconocido'` en vez de reescribir el histórico.
-- Hito 7: detección de solapamiento con código (`motor/solapamiento.py`,
-  comando `proceso analizar --campo --valores`) — cruza nombre/sinónimo
-  contra el catálogo, cardinalidad de los valores propuestos (categoría
-  cerrada vs. entidad propia) y candidatos a clave foránea por solapamiento
-  real de valores contra las tablas existentes. Skill de Claude Code
-  `crear-proceso` (`.claude/skills/crear-proceso/SKILL.md`) que usa esa
-  evidencia para tomar requisitos por preguntas, proponer el esquema de una
-  entidad nueva integrada con lo existente (o justificar por qué no
-  referencia núcleo, como `movimiento_bancario`), y solo tras tu aprobación
-  escribir migración + `/catalogo/<tabla>.json` + entrada en `_decisiones`.
-- Hito 8: vistas de consumo (`migraciones/005_vistas_consumo.sql`) y export
-  (`motor/export.py`, comando `etl exportar <vista>`) a `/export` en parquet
-  y CSV, cerrando la conexión explícitamente al terminar. Probado extremo a
-  extremo: exporté `movimiento_bancario_consumo`, releí el parquet con una
-  conexión DuckDB nueva y los datos coincidían exactamente, y confirmé que
-  el almacén no queda bloqueado después (una consulta inmediata posterior
-  funciona sin conflicto).
-- Hito 9: `ticket.concepto` amplía su `CHECK` a `otros`
-  (`migraciones/006_ticket_concepto_otros.sql` — recrea la tabla porque
-  DuckDB no soporta `ALTER TABLE ... DROP/ADD CONSTRAINT`). Segunda tabla de
-  proceso de negocio con CRUD por CLI: `idea`
-  (`migraciones/007_idea.sql`, `catalogo/idea.json`, `motor/ideas.py`,
-  comandos `idea crear/listar/editar/borrar`), con `persona_id` obligatorio
-  y `cliente_id` opcional, y su vista de consumo
-  (`migraciones/008_idea_consumo.sql`, con `LEFT JOIN` a `cliente` porque el
-  vínculo es opcional).
-- Hito 10: nuevo modelo de escritura para cargas de fichero
-  (`campos_singularidad` + promoción en bloque, tabla hall opcional con
-  `transformacion_sql`), sustituyendo al upsert fila a fila y a la
-  `estrategia: reemplazar` intermedia (ver `_decisiones`,
-  `migraciones/010_modelo_carga_singularidad.sql`). Toda escritura masiva
-  pasa por DataFrame: la carga real de `previ_transporte`
-  (`migraciones/009_previ_transporte.sql`, 497.383 filas de previsión de
-  costes de transporte) pasó de no terminar en 10 minutos a completarse en
-  22s, y reejecutarla deja 497.383 filas (sustituye, no duplica).
-  `movimientos_banco` se migró al mismo modelo (`campos_singularidad` = la
-  antigua clave de upsert) y sigue sin duplicar.
-- Hito 11: registro de consultas (`migraciones/011_consultas.sql`,
-  `motor/consultas.py`, comando `db uso`). `db consultar` y `etl exportar`
-  dejan traza en `_consultas`; el análisis extrae las tablas referenciadas
-  del AST de DuckDB (`json_serialize_sql`) e informa de uso real, objetos sin
-  uso, consultas recurrentes (candidatas a vista de consumo) y las más
-  lentas. No propone índices: se midió que en DuckDB no aportan a este
-  volumen y llegan a empeorar el filtro por texto (ver `_decisiones`).
-- Hito 12: stops y alarmas (`motor/validaciones.py`,
-  `migraciones/012_validaciones.sql`). Una validación es un `SELECT` que, si
-  devuelve filas, corta la carga (`stop`) o deja aviso (`alarma`), mostrando
-  el detalle de las filas implicadas. Se declaran en la carga o, como
-  invariantes de tabla, en `/catalogo/<tabla>.json`, y en ese caso rigen
-  también para las escrituras del CLI (`ticket crear`, `idea editar`), donde
-  un stop revierte la operación. Acciones declarativas por momento del ciclo
-  de vida (`antes`, `tras_validar`, `al_fallar`) y `ejecucion_id` en las
-  tablas de carga para poder deshacer o inspeccionar por proceso de carga.
-- Hito 13: salidas (`motor/salidas.py`, comando `etl salida`). Una carga puede
-  declarar ficheros de resultado a partir de un `SELECT` libre, en xlsx, CSV o
-  parquet, con nombre compuesto por fecha (`%Y%m%d`) y datos de la ejecución
-  (`{carga}`, `{ejecucion_id}`). Se generan al terminar una carga correcta, con
-  los datos ya confirmados. El xlsx lo escribe la extensión `excel` de DuckDB
-  (83.440 filas en 0,6 s), con respaldo en openpyxl si no está disponible.
-- Hito 14: borrador de esquema (`motor/esquema.py`, comando `etl esquema`) a
-  partir del perfil del fichero: `CREATE TABLE` y entrada de catálogo con las
-  columnas dudosas marcadas (identificadores, ceros a la izquierda, fechas
-  disfrazadas de número). `--limite N` en `definir` y `esquema` muestrea
-  parando la lectura (2,7 s frente a 37 s en el xlsx de previsiones),
-  avisando de que el tipo inferido ya no está garantizado.
-- Hito 15: lectura de xlsx con la extensión `excel` de DuckDB en carga y
-  perfilado (4,9 s frente a 23,4 s en el fichero de previsiones), con openpyxl
-  de respaldo. Verificado comparando ambos lectores fila a fila: cero celdas
-  distintas tras el mapping sobre 497.383 filas. De paso corrige que una celda
-  con fecha real de Excel acabara rechazando la fila.
-- Hito 16: trazabilidad de ejecuciones (`motor/ejecuciones.py`,
-  `migraciones/013_trazabilidad_ejecuciones.sql`). `_ejecuciones` deja de ser
-  el diario de las cargas de fichero para registrar **toda escritura del
-  sistema**: gana `tipo` (`carga`/`cli`) y `ejecucion_id_principal`, que en una
-  creación o una carga apunta a sí misma. `id = ejecucion_id_principal` da las
-  ejecuciones principales y `ejecucion_id_principal = N AND id <> N` el
-  historial de cambios de N. `ticket` e `idea` guardan en `ejecucion_id` solo
-  la ejecución de creación, así que editar no toca la fila: crear, editar y
-  borrar quedan encadenados bajo la misma principal. Se descarta llevar el
-  hash del fichero a las tablas de ingesta por redundante: se recupera por
-  join desde `ejecucion_id`. `fichero` y `hash_fichero` pasan a nullable
-  porque una operación de CLI no tiene fichero; para alterarlos hay que
-  recrear `_rechazos`, cuya FK impedía tocar la tabla referenciada.
-- Hito 17: almacén de documentos (`motor/documentos.py`,
-  `migraciones/014_documentos.sql`). Los ficheros se archivan en
-  `datos/documentos/<hash[:2]>/<hash><ext>` direccionados por su SHA-256:
-  `_documentos` guarda los atributos del contenido (nombre, tamaño, mime,
-  `estado`) y `_ejecucion_documento` el vínculo con la ejecución, donde vive
-  el `tag` — texto libre (`crear`, `justificante pago`, `doc AB545`) porque
-  califica el uso y no el contenido. Como toda escritura deja ejecución y las
-  modificaciones se encadenan a la de creación (hito 16), `documentos.de_fila`
-  devuelve de una vez todos los documentos de la vida de un registro, tanto el
-  que lo originó como los que se añadan después. Las cargas archivan su
-  fichero de origen automáticamente con tag `crear`. Deduplicación verificada:
-  dos ejecuciones del mismo CSV dejan un documento y dos vínculos. El hash se
-  calcula por bloques de 1 MB y es el mismo que identifica la ejecución (una
-  sola implementación), verificado sobre el xlsx de 45 MB. `datos/documentos/`
-  entra en `.gitignore` desde el primer día: son extractos y justificantes de
-  clientes.
-- Hito 18: historial declarativo y purga (`motor/historial.py`,
-  `migraciones/015_historial_documentos.sql`). Cada proceso declara cuánto
-  conserva con un bloque `historial` en `/cargas/<nombre>.json` o
-  `/catalogo/<tabla>.json`: `"siempre"` (por defecto),
-  `{"tipo":"ficheros","cantidad":N}`, `{"tipo":"anios","cantidad":N}`, con
-  `tags_exentos` opcional. `documento purgar` va en seco salvo `--aplicar`,
-  libera los bytes y marca `estado = 'purgado'` **sin borrar nunca la ficha**,
-  así que se sigue sabiendo de qué fichero salió cada dato. Un documento se
-  conserva si lo conserva algún proceso: la decisión se toma sobre la unión,
-  nunca proceso a proceso. Verificado que un documento fuera de la retención
-  de su carga sobrevive mientras siga vinculado a un ticket, que al aplicar la
-  purga la ficha queda con `fecha_purga` y los bytes desaparecen, y que volver
-  a cargar el fichero lo repone a `disponible`.
-- Hito 19: CLI de documentos (`documento adjuntar|listar|purgar`) y
-  `--documento` en `ticket crear` / `idea crear`, para archivar el justificante
-  del que salen los datos en el mismo alta. `documento adjuntar <tabla> <id>
-  <ruta> --tag` abre una ejecución encadenada a la de creación, de modo que un
-  justificante de pago que llega semanas después aparece junto a la foto del
-  alta en `documento listar --tabla ticket --id <id>`. Adjuntar sobre un
-  registro anterior a la migración 013 falla con un mensaje explícito en vez de
-  inventarle una cadena.
-- Hito 20: parámetros de carga (`motor/parametros.py`,
-  `migraciones/016_parametros_carga.sql`). Una carga declara `parametros`:
-  valores que no vienen dentro del fichero y se piden al ejecutarla — la tienda
-  de la que llega este export de pedidos, un comentario libre. Con `valores_de`
-  la lista es cerrada y se resuelve contra una tabla por nombre, listando los
-  disponibles si falla; sin él, texto libre. Llegan a las filas por el mapping,
-  con la operación nueva `parametro`, para que se comporten igual que cualquier
-  otra columna. Falta un obligatorio y la carga corta antes de leer el fichero.
-  Los valores contestados quedan en `_ejecuciones.parametros`, guardando de una
-  lista cerrada tanto lo tecleado como el id resuelto, para que renombrar la
-  tienda no deje la ejecución ilegible. `etl validar` avisa si un parámetro
-  obligatorio no entra en `campos_singularidad`, que es el error caro: recargar
-  el fichero de una tienda borraría las filas de las demás. Verificado con dos
-  tiendas sobre el mismo fichero: recargar una sustituye solo sus filas
-  (`sustituidas=3`) y deja intactas las de la otra. La idempotencia sigue
-  siendo por hash, decisión explícita: dos ficheros idénticos de tiendas
-  distintas exigen `--forzar` en el segundo.
-- Hito 21: batería de pruebas (`/pruebas`, `python -m unittest discover -s
-  pruebas -t .`). 69 pruebas sobre `unittest` de la librería estándar, sin
-  dependencias nuevas, cubriendo instalación desde cero, motor ETL,
-  singularidad, hall, stops y alarmas, salidas, CRUD, trazabilidad, documentos,
-  historial/purga y parámetros. Cada una corre contra un almacén temporal
-  recién migrado con su propio catálogo, cargas y almacén de documentos, así
-  que la suite no puede tocar los datos reales. Comprueba además dos
-  invariantes del repo: que el esquema de una instalación nueva coincide con el
-  del almacén migrado incrementalmente, y que toda migración deja su entrada en
-  `_decisiones` (salvo la de arranque, que es quien crea esa tabla).
-- Hito 22: descripción obligatoria de cada carga (`descripcion` en
-  `/cargas/*.json`, `migraciones/017_descripcion_cargas.sql`) enfocada al para
-  qué y no a lo descriptivo: para qué se cargan los datos, de dónde sale el
-  fichero, qué es una fila, qué sustituye una versión corregida y qué haría
-  desconfiar. El skill `definir-carga` la redacta desde el perfilado más una
-  tanda de preguntas directas y la sitúa **antes** de elegir
-  `campos_singularidad`, porque la pregunta "qué sustituye un fichero
-  corregido" es esa clave contada en palabras: si prosa y clave no coinciden,
-  la contradicción se ve sin ejecutar nada. Se muestra en `etl validar` y en
-  una sección nueva de `db diagrama`. Los errores de esquema ahora nombran el
-  campo que falla (`estructura inválida en descripcion: ...`), que antes había
-  que adivinar. De paso se corrigió que `db diagrama` abortaba con
-  `UnicodeEncodeError` en consola cp1252 por una flecha U+2192, con una prueba
-  que vigila los `print` del motor.
-- Hito 23: separación núcleo / capa propia (`motor/rutas.py`,
-  `migraciones/018_capa_propia.sql`). El framework vive en `migraciones/`,
-  `catalogo/` y `cargas/`; lo que cada uno carga con él, en `propio/` con la
-  misma estructura, fuera del control de versiones del núcleo. `db migrar`
-  aplica el núcleo primero y las propias después —una migración propia puede
-  apoyarse en tablas del framework, nunca al revés—, y si coincide el nombre
-  gana la capa propia, lo que permite adaptar una ficha sin bifurcar el repo.
-  La separación es por directorio y no por disciplina: los ficheros de una
-  carga real no pueden colarse en un commit del framework porque no están en su
-  árbol. Al mover la primera carga salió un acoplamiento que no se veía:
-  `012_validaciones.sql`, del núcleo, hacía `ALTER TABLE` sobre una tabla de
-  negocio, así que la instalación limpia de un tercero se habría roto; ahora
-  una prueba falla si el núcleo vuelve a referenciar una tabla propia.
-- Hito 24: CRUD genérico dirigido por el catálogo (`motor/registros.py`,
-  comandos `registro campos/crear/listar/editar/borrar`). Cierra el agujero
-  que dejaba abierto el hito 23: las cargas ya podían ser privadas, pero un
-  **proceso** no, porque su CRUD había que escribirlo en `motor/` y
-  `motor/cli.py` —los dos del núcleo—, así que todo proceso acababa siendo
-  público y venía de serie en la instalación de cualquier tercero. Ahora la
-  entidad no está en el código: sale de su ficha de catálogo, que puede vivir
-  en `propio/catalogo/`. De la ficha salen los campos escribibles (los
-  `sistema` se rechazan), el tipo al que convertir el texto del CLI, las
-  relaciones para resolver una FK por nombre (`--set persona=Nacho`) y
-  `lista_valores` para fallar legible antes que con el `CHECK`. La
-  obligatoriedad **no** se comprueba a propósito: una columna puede ser
-  `NOT NULL` con `DEFAULT` y desde la ficha no se distingue de una que hay que
-  rellenar; la autoridad es la base, y duplicar la regla crearía dos verdades
-  que se separan. Trazabilidad idéntica a la del CRUD escrito a mano. Un
-  proceso privado pasa a ser una migración y una ficha, las dos en `propio/`.
-- Hito 25: el núcleo se queda sin procesos de negocio, y aparece la capa de
-  ejemplos (`ejemplos/`, `motor/rutas.py`, `db migrar --con-ejemplos`).
-  `ticket`, `idea` y `movimiento_bancario` se van a `propio/` con sus 6
-  migraciones, 3 fichas y 1 carga; `motor/tickets.py`, `motor/ideas.py` y sus
-  subcomandos desaparecen —lo que hacían lo hace `registro`—. Una instalación
-  limpia crea ahora `persona`, `cliente` y `proyecto` y nada más, y hay una
-  prueba que falla si vuelve a colarse una tabla de negocio en el núcleo. Al
-  mover las tablas salieron dos acoplamientos que la prueba del hito 23 no
-  veía porque solo miraba las tablas que ya estaban en `propio/`:
-  `012_validaciones.sql` y `013_trazabilidad_ejecuciones.sql`, las dos del
-  núcleo, hacían `ALTER TABLE` sobre movimiento_bancario, ticket e idea;
-  ahora cada tabla declara su `ejecucion_id` en la migración que la crea. La
-  batería de pruebas necesitaba un sujeto que no fuese negocio de nadie, y de
-  ahí `ejemplos/`: una librería inventada con datos dummy sembrados en su
-  propia migración, dimensiones propias (nunca insertan en `cliente` ni
-  `persona`) y una carga que ejercita hall, singularidad, stop, alarma y
-  salida. Se instalan solo si se piden y son invisibles por defecto: las
-  fichas llevan `"ejemplo": true` y `proceso analizar`, `etl definir` y
-  `db diagrama` las ignoran, porque un dominio dummy en el catálogo produce
-  respuestas falsas sobre datos reales. De paso, dos límites del CRUD
-  genérico que solo se ven con entidades que no son las de siempre: asumía
-  que toda entidad se identifica por una columna `nombre` (ahora la ficha lo
-  declara con `etiqueta`, y `demo_libro` usa `titulo`) y que toda tabla tiene
-  `ejecucion_id` (las tres del núcleo no lo tienen y no se les puede añadir,
-  al ser destino de claves ajenas: se detecta y se omite).
-- Hito 26: el framework deja de traer entidades. `persona`, `cliente` y
-  `proyecto` salen de `001_nucleo.sql` y pasan a `propio/migraciones/000_dimensiones.sql`,
-  con sus tres fichas; el núcleo se queda solo con las tablas de sistema y
-  `catalogo/` vacío. Eran un modelo de consultoría —quién hace el trabajo,
-  para quién, en el marco de qué— y venían de serie: quien quisiera usar esto
-  para una bodega o un gimnasio heredaba un vocabulario que no es el suyo.
-  ClaudETL opina sobre cómo se declaran, se cargan y se rastrean las
-  entidades, no sobre cuáles son. Se crean con `IF NOT EXISTS` porque en los
-  almacenes ya migrados las creó `001_nucleo.sql` y `_migraciones` indexa por
-  nombre de fichero, así que la migración nueva corre igual; comprobado que la
-  instalación limpia y la incremental acaban con las mismas columnas en el
-  mismo orden, y que no se pierde un dato. La regla de `crear-proceso` que
-  obligaba a referenciar persona/cliente/proyecto pasa a hablar de las
-  dimensiones que haya en `propio/catalogo/`, sin nombres fijos. La prueba que
-  vigila que el núcleo no toque tablas propias deducía los nombres del nombre
-  del fichero de migración, lo que solo acierta cuando coinciden; ahora los
-  saca de las fichas, que es donde están de verdad.
+En [CHANGELOG.md](CHANGELOG.md).

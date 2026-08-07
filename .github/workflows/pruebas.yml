@@ -1,0 +1,43 @@
+name: pruebas
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+    strategy:
+      # Que no pare todo el matrix al primer fallo: interesa saber si falla en
+      # una versión concreta o en todas, que son diagnósticos distintos.
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Sin capa propia y sin almacén previo: es justo la instalación que
+      # recibe alguien que acaba de clonar, y la que más fácil se rompe sin
+      # que nadie lo note (una migración del núcleo que toque una tabla de
+      # negocio solo falla aquí).
+      - name: Instalación limpia
+        run: python -m motor.cli db migrar
+
+      - name: Instalación con el dominio de ejemplo
+        run: python -m motor.cli db migrar --con-ejemplos
+
+      - name: La carga de ejemplo, de principio a fin
+        run: python -m motor.cli etl ejecutar demo_ventas
+
+      - name: Batería de pruebas
+        run: python -m unittest discover -s pruebas -t .

@@ -1,4 +1,8 @@
-duckdb
-jsonschema
-openpyxl
-pandas
+# Rangos por versión mayor, no versiones exactas: esto es un framework que
+# alguien instalará junto a otras cosas, y clavar una versión le fuerza un
+# conflicto. El tope de mayor es la parte que importa — un salto de mayor en
+# DuckDB puede cambiar el formato del fichero de almacén.
+duckdb>=1.0,<2.0
+jsonschema>=4.0,<5.0
+openpyxl>=3.1,<4.0
+pandas>=2.0,<4.0
