@@ -671,7 +671,7 @@ def main(argv=None) -> int:
     reg_crear_parser = registro_sub.add_parser("crear", help="Crea un registro")
     reg_crear_parser.add_argument("entidad")
     reg_crear_parser.add_argument("--set", action="append", metavar="CAMPO=VALOR",
-                                  help="Repetible. Las referencias admiten el nombre: persona=Nacho")
+                                  help="Repetible. Las referencias admiten el nombre, no solo el id")
     reg_crear_parser.add_argument("--documento", default=None, help="Fichero a archivar con el alta")
 
     reg_listar_parser = registro_sub.add_parser("listar", help="Lista registros")

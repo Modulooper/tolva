@@ -192,11 +192,11 @@ ficha de catálogo — que puede vivir igual de bien en `catalogo/` que en
 `propio/`, y ya funciona.
 
 ```bash
-python -m motor.cli registro campos tarea
-python -m motor.cli registro crear tarea --set persona=Nacho --set "texto=Pagar las nóminas" --set fecha_limite=2026-08-31
-python -m motor.cli registro listar tarea --filtro estado=pendiente --filtro "fecha_limite<=2026-08-15"
-python -m motor.cli registro editar tarea <id> --set estado=hecha --set horas=1.5
-python -m motor.cli registro borrar tarea <id>
+python -m motor.cli registro campos demo_venta
+python -m motor.cli registro crear demo_venta --set demo_cliente="Ateneo Mercantil" --set demo_libro="El jardín de arena" --set unidades=2 --set importe=39.00
+python -m motor.cli registro listar demo_venta --filtro canal=web --filtro "fecha>=2026-05-01"
+python -m motor.cli registro editar demo_venta <id> --set canal=feria --set unidades=3
+python -m motor.cli registro borrar demo_venta <id>
 ```
 
 Qué saca de la ficha:
@@ -205,10 +205,11 @@ Qué saca de la ficha:
   `updated_at`, `ejecucion_id`) se rechazan si los pasas a mano, y no salen en
   el listado.
 - **`tipo`** — a qué convertir lo que llega del CLI, que siempre es texto.
-  `horas=1,5` y `horas=1.5` valen los dos; un valor vacío deja el campo a nulo.
-- **`relaciones`** — qué campos son referencias. `--set persona=Nacho` resuelve
-  contra la tabla destino por su `nombre` (sin distinguir mayúsculas) y el id
-  en crudo también vale. En el listado se muestra el nombre, no el id, y se
+  `importe=39,00` y `importe=39.00` valen los dos; un valor vacío deja el
+  campo a nulo.
+- **`relaciones`** — qué campos son referencias. `--set demo_cliente="Ateneo
+  Mercantil"` resuelve contra la tabla destino por su `nombre` (sin distinguir
+  mayúsculas) y el id en crudo también vale. En el listado se muestra el nombre, no el id, y se
   puede filtrar por él. Si la entidad destino no se identifica por `nombre`,
   su ficha lo declara con **`etiqueta`** (`demo_libro` usa `titulo`): asumir
   `nombre` siempre obligaría a escribir uuids justo en lo que peor se recuerda.
@@ -216,7 +217,7 @@ Qué saca de la ficha:
   salte el `CHECK`.
 
 Lo que **no** comprueba, a propósito, es la obligatoriedad: una columna puede
-ser `NOT NULL` y tener `DEFAULT` (`tarea.fecha`, `tarea.estado`), y desde la
+ser `NOT NULL` y tener `DEFAULT` (`demo_venta.fecha`, `demo_venta.canal`), y desde la
 ficha eso no se distingue de una que hay que rellenar sí o sí. La autoridad es
 la base. Duplicar la regla solo crearía dos verdades que se separan con el
 tiempo.

@@ -1,10 +1,10 @@
 -- E01_libreria.sql
 -- Dominio de ejemplo: una librería. Inventado a propósito, y a propósito
--- lejos del modelo de consultoría del núcleo (persona/cliente/proyecto): si
--- se pareciese, un dato dummy y uno real serían indistinguibles de un
--- vistazo. Por eso también el prefijo demo_, que los delata en cualquier SQL
--- suelto, y las dimensiones propias: los ejemplos NUNCA insertan en cliente
--- ni en persona, porque una vez mezclados no hay quien los separe.
+-- lejos de cualquier modelo de trabajo real: si se pareciese, un dato dummy y
+-- uno de verdad serían indistinguibles de un vistazo. Por eso también el
+-- prefijo demo_, que los delata en cualquier SQL suelto, y las dimensiones
+-- propias: los ejemplos NUNCA escriben en las tablas de la capa propia,
+-- porque una vez mezclados no hay quien los separe.
 --
 -- Solo se aplica con `db migrar --con-ejemplos`. Sirve para dos cosas: que la
 -- batería de pruebas tenga sujeto sin depender de ningún proceso real, y que
@@ -113,12 +113,13 @@ JOIN demo_libro l ON l.titulo = v.titulo;
 INSERT INTO _decisiones (tipo, descripcion, evidencia, migracion_asociada) VALUES (
     'diseño_esquema',
     'El dominio de ejemplo es una librería, deliberadamente lejos del modelo ' ||
-    'de consultoría del núcleo. Si demo_cliente se pareciese a cliente, un ' ||
+    'de trabajo de quien monta la instalación. Si demo_cliente se pareciese ' ||
+    'a su tabla de clientes, un ' ||
     'dato dummy y uno real serían indistinguibles al leer una consulta, y en ' ||
     'un almacén con las dos cosas eso es una trampa. Por lo mismo los ' ||
     'ejemplos tienen dimensiones propias (demo_cliente, demo_libro) y nunca ' ||
-    'insertan en cliente ni en persona: una vez mezclados los dummies con ' ||
-    'Turri o con tus personas reales, no hay forma de separarlos. ' ||
+    'insertan en las dimensiones reales de la instalación: una vez mezclados ' ||
+    'los dummies con clientes y personas de verdad, no hay quien los separe. ' ||
     'demo_venta lleva a la vez CRUD por CLI y carga de fichero acotada por ' ||
     'origen_carga, porque el ejemplo tiene que poder demostrar las dos ' ||
     'puertas de entrada del framework, no solo una.',

@@ -111,7 +111,7 @@ en vez de listarlos todos en el chat.
   `motor/ideas.py` y se borraron en el hito 25 justamente por esto: un módulo
   por entidad mete el proceso en el repo público. Lo que sí hay que cuidar es
   la ficha, porque es de donde sale todo: las `relaciones` permiten
-  `--set persona=Nacho`, `etiqueta` dice con qué columna se nombra la entidad
+  `--set cliente="<nombre>"`, `etiqueta` dice con qué columna se nombra la entidad
   cuando no es `nombre` (`demo_libro` usa `titulo`), y
   `validacion.lista_valores` da un error legible en vez de un `CHECK` violado.
 - Toda migración nueva sigue el patrón de `/migraciones/`: `CREATE TABLE`/

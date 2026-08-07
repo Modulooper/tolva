@@ -1,25 +1,27 @@
 """CRUD genérico dirigido por el catálogo: el núcleo no conoce las entidades.
 
-`motor/tickets.py` y `motor/ideas.py` son el mismo código dos veces con los
-nombres cambiados, y ese patrón tiene un coste que no se ve hasta que quieres
-un proceso privado: para dar de alta una entidad nueva había que tocar el
-framework, así que **todo proceso acababa siendo público**. Aquí la entidad no
-está en el código: se lee de su ficha de catálogo, que puede vivir igual de
-bien en `catalogo/` que en `propio/catalogo/`.
+Hubo un `motor/tickets.py` y un `motor/ideas.py`: el mismo código dos veces
+con los nombres cambiados. Ese patrón tiene un coste que no se ve hasta que
+quieres un proceso privado, porque para dar de alta una entidad nueva había
+que tocar el framework, y entonces **todo proceso acababa siendo público**.
+Aquí la entidad no está en el código: se lee de su ficha de catálogo, que
+puede vivir igual de bien en `catalogo/` que en `propio/catalogo/`.
 
 Lo que la ficha aporta y este módulo aprovecha:
 
 - `campos`: qué se puede escribir. Los marcados `sistema` no se tocan desde
   fuera (`id`, `created_at`, `updated_at`, `ejecucion_id`).
 - `tipo`: a qué convertir lo que llega del CLI, que siempre es texto.
-- `relaciones`: qué campos son referencias. Un `persona_id` se puede dar por
-  el nombre ("Nacho") y se resuelve contra la tabla destino, que es lo que
-  evita el campo de texto libre duplicando una entidad que ya existe.
+- `relaciones`: qué campos son referencias. Un `autor_id` se puede dar por el
+  nombre y se resuelve contra la tabla destino, que es lo que evita el campo
+  de texto libre duplicando una entidad que ya existe.
+- `etiqueta`: con qué columna se nombra la entidad destino cuando no es
+  `nombre` (un libro se identifica por su `titulo`).
 - `validacion.lista_valores`: los valores admitidos, para fallar con un
   mensaje legible en vez de con la violación del CHECK.
 
 Lo que NO comprueba a propósito: la obligatoriedad. Una columna puede ser
-`NOT NULL` y tener `DEFAULT` (`tarea.fecha`, `tarea.estado`), y desde la ficha
+`NOT NULL` y tener `DEFAULT` (una fecha de alta, un estado inicial), y desde la ficha
 no se distingue de una que hay que rellenar sí o sí. La autoridad es la base:
 si falta algo, salta el `NOT NULL`. Duplicar la regla aquí solo crearía dos
 verdades que se separan con el tiempo.
@@ -61,8 +63,8 @@ def campos_escribibles(entidad: dict) -> dict:
 def _referencias(entidad: dict) -> dict:
     """{campo_fk: (alias, tabla_destino, columna_legible_o_None)}.
 
-    El alias es el campo sin el `_id` final: se acepta `--set persona=Nacho`
-    además de `--set persona_id=<uuid>`.
+    El alias es el campo sin el `_id` final: se acepta `--set autor=<nombre>`
+    además de `--set autor_id=<uuid>`.
 
     La columna legible sale de `etiqueta` en la ficha destino, y si no se
     declara se prueba `nombre`. No basta con asumir `nombre` siempre: un libro
@@ -91,7 +93,8 @@ def _referencias(entidad: dict) -> dict:
 
 def _canonico(entidad: dict, clave: str) -> str:
     """Nombre real de columna a partir de lo que escribió el usuario: acepta
-    el campo tal cual, un alias de referencia (`persona`) o un sinónimo."""
+    el campo tal cual, un alias de referencia (`autor` por `autor_id`) o un
+    sinónimo declarado en la ficha."""
     campos = entidad.get("campos", {})
     if clave in campos:
         return clave
@@ -233,7 +236,7 @@ def _consulta_listado(entidad: dict):
 
     Devuelve `(sql_base, expresiones)`, donde `expresiones` dice con qué
     comparar cada campo al filtrar: la columna de la tabla, o el nombre de la
-    entidad referenciada cuando se filtra por `cliente=Turri`.
+    entidad referenciada cuando se filtra por `cliente=<nombre>`.
     """
     tabla = entidad["tabla"]
     referencias = _referencias(entidad)
@@ -253,7 +256,7 @@ def _consulta_listado(entidad: dict):
             union = f"r{indice}"
             joins.append(f'LEFT JOIN "{tabla_destino}" {union} ON {union}."id" = t."{campo}"')
             seleccion.append(f'{union}."{columna}" AS "{alias}"')
-            # Filtrar por nombre es lo natural ("las de Turri"), pero el id
+            # Filtrar por nombre es lo natural ("las de tal cliente"), pero el id
             # sigue valiendo: se comparan los dos.
             expresiones[campo] = f'{union}."{columna}"'
             expresiones[alias] = f'{union}."{columna}"'

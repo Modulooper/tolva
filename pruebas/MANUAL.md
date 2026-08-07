@@ -111,21 +111,28 @@ Necesitas una carga con `parametros` declarados.
 
 ## 7. CRUD y documentos
 
-- [ ] Crea un ticket real con su justificante:
+- [ ] Mira primero qué acepta la entidad, sin adivinar campos:
 
 ```bash
-python -m motor.cli ticket crear --cliente "<cliente>" --persona Nacho --concepto viajes --importe 20.5 --fecha 2026-08-05 --documento "ruta/a/la/foto.jpg"
+python -m motor.cli registro campos <entidad>
+```
+
+- [ ] Da de alta un registro real con su justificante:
+
+```bash
+python -m motor.cli registro crear <entidad> --set campo=valor --documento "ruta/a/la/foto.jpg"
 ```
 
 - [ ] Adjunta después un segundo documento con otro tag:
 
 ```bash
-python -m motor.cli documento adjuntar ticket <id> "ruta/al/pago.pdf" --tag "justificante pago"
+python -m motor.cli documento adjuntar <tabla> <id> "ruta/al/pago.pdf" --tag "justificante pago"
 ```
 
-- [ ] `documento listar --tabla ticket --id <id>` → salen los dos, con su tag y
-      su operación.
-- [ ] Edita el ticket y vuelve a listar → los documentos siguen ahí.
+- [ ] `documento listar --tabla <tabla> --id <id>` → salen los dos, con su tag
+      y su operación.
+- [ ] Edita el registro (`registro editar`) y vuelve a listar → los documentos
+      siguen ahí.
 - [ ] Comprueba que el fichero archivado se **abre bien** desde
       `datos/documentos/...`. El hash no garantiza que la copia sea legible por
       Windows si el original estaba bloqueado.
@@ -196,8 +203,8 @@ Sin mirar el código, intenta responder con el sistema:
 cp "datos/almacen.duckdb.bak" "datos/almacen.duckdb"
 ```
 
-- [ ] Anota como idea lo que haya quedado cojo:
+- [ ] Anota lo que haya quedado cojo en la entidad que uses para eso:
 
 ```bash
-python -m motor.cli idea crear --persona Nacho --cliente ScheMate --texto "..."
+python -m motor.cli registro crear <entidad> --set texto="..."
 ```
