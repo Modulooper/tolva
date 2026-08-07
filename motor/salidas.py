@@ -50,23 +50,28 @@ def resolver_nombre(plantilla: str, contexto: dict, momento: datetime = None) ->
     return momento.strftime(plantilla).format(**contexto)
 
 
-def _escribir_xlsx(con, sql: str, ruta: Path) -> None:
+def _escribir_xlsx(con, sql: str, ruta: Path, valores: list = None) -> None:
     """Escribe xlsx con la extensión `excel` de DuckDB, que resuelve el volcado
     dentro del motor. Si no está disponible (por ejemplo, sin red para
     instalarla la primera vez), se recurre a openpyxl, que ya es dependencia
-    del proyecto pero pasa las filas por Python."""
+    del proyecto pero pasa las filas por Python.
+
+    `sql` llega ya con sus marcadores y `valores` con lo que enlazar."""
+    valores = valores or []
     try:
         con.execute("INSTALL excel; LOAD excel;")
         # HEADER true es obligatorio aquí: sin él la primera fila del fichero ya
         # es un dato y quien lo abra en Excel no sabe qué columna es cada cosa.
-        con.execute(f"COPY ({sql}) TO '{ruta.as_posix()}' (FORMAT xlsx, HEADER true)")
+        con.execute(
+            f"COPY ({sql}) TO '{ruta.as_posix()}' (FORMAT xlsx, HEADER true)", valores
+        )
         return
     except Exception:
         pass
 
     import openpyxl
 
-    cursor = con.execute(sql)
+    cursor = con.execute(sql, valores)
     columnas = [d[0] for d in cursor.description]
     wb = openpyxl.Workbook(write_only=True)
     ws = wb.create_sheet()
@@ -77,7 +82,15 @@ def _escribir_xlsx(con, sql: str, ruta: Path) -> None:
 
 
 def generar(con, salida: dict, contexto: dict = None) -> dict:
-    """Genera una salida. Devuelve la ruta y el número de filas escritas."""
+    """Genera una salida. Devuelve la ruta y el número de filas escritas.
+
+    El mismo `contexto` sirve para las dos cosas: las llaves del nombre de
+    fichero (`{carga}`) y las variables del SQL (`$p_tienda`). Son sintaxis
+    distintas a propósito, porque el nombre de fichero se compone pegando
+    texto y el SQL nunca.
+    """
+    from . import sustitucion
+
     contexto = contexto or {}
     nombre_fichero = resolver_nombre(salida["fichero"], contexto)
     formato = formato_de(nombre_fichero)
@@ -88,15 +101,18 @@ def generar(con, salida: dict, contexto: dict = None) -> dict:
     carpeta.mkdir(parents=True, exist_ok=True)
     ruta = carpeta / nombre_fichero
 
-    sql = salida["sql"]
-    filas = con.execute(f"SELECT count(*) FROM ({sql})").fetchone()[0]
+    # Se resuelve una vez y se reutiliza: el SQL entra en tres sentencias
+    # distintas (contar, copiar, volcar) y las tres necesitan los mismos
+    # valores enlazados en el mismo orden.
+    sql, valores = sustitucion.resolver(salida["sql"], contexto)
+    filas = con.execute(f"SELECT count(*) FROM ({sql})", valores).fetchone()[0]
 
     if formato == "csv":
-        con.execute(f"COPY ({sql}) TO '{ruta.as_posix()}' (FORMAT CSV, HEADER)")
+        con.execute(f"COPY ({sql}) TO '{ruta.as_posix()}' (FORMAT CSV, HEADER)", valores)
     elif formato == "parquet":
-        con.execute(f"COPY ({sql}) TO '{ruta.as_posix()}' (FORMAT PARQUET)")
+        con.execute(f"COPY ({sql}) TO '{ruta.as_posix()}' (FORMAT PARQUET)", valores)
     else:
-        _escribir_xlsx(con, sql, ruta)
+        _escribir_xlsx(con, sql, ruta, valores)
 
     return {"nombre": salida["nombre"], "fichero": str(ruta), "filas": filas, "formato": formato}
 

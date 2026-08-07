@@ -26,6 +26,18 @@ from . import catalogo, historial, operaciones, parametros, rutas, salidas, vali
 ROOT = Path(__file__).resolve().parent.parent
 CARGAS_DIR = ROOT / "cargas"
 
+# Momentos del ciclo de vida en los que puede engancharse una acción o
+# capturarse una variable. `tras_promover` es el único desde el que se ve el
+# resultado real de la escritura: `tras_validar` corre antes de tocar el
+# destino, así que desde ahí solo se ve el estado anterior más la hall.
+MOMENTOS = ["antes", "tras_validar", "tras_promover", "al_fallar"]
+
+# Nombres que el motor pone siempre. `promovidas` y `borradas` solo existen a
+# partir de `tras_promover`; usarlos antes falla, que es mejor que un nulo.
+VARIABLES_DE_SISTEMA = ["ejecucion_id", "carga", "fichero", "hash_fichero",
+                        "promovidas", "borradas"]
+
+
 SCHEMA_DEFINICION = {
     "type": "object",
     "properties": {
@@ -55,10 +67,25 @@ SCHEMA_DEFINICION = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "momento": {"enum": ["antes", "tras_validar", "al_fallar"]},
+                    "momento": {"enum": MOMENTOS},
                     "sql": {"type": "string", "minLength": 1},
                 },
                 "required": ["momento", "sql"],
+                "additionalProperties": False,
+            },
+        },
+        # Valores calculados durante la carga y fijados en el momento en que se
+        # capturan. Cada columna de la fila resultante pasa a ser `$v_<columna>`.
+        "variables": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "momento": {"enum": MOMENTOS},
+                    "sql": {"type": "string", "minLength": 1},
+                    "descripcion": {"type": "string"},
+                },
+                "required": ["sql"],
                 "additionalProperties": False,
             },
         },
@@ -156,6 +183,107 @@ def avisos(definicion: dict) -> list:
     return avisos_
 
 
+def _todos_los_sql(definicion: dict):
+    """Todos los SQL de una definición, vengan de donde vengan."""
+    for accion in definicion.get("acciones", []):
+        yield accion["sql"]
+    for variable in definicion.get("variables", []):
+        yield variable["sql"]
+    for validacion in definicion.get("validaciones", []):
+        yield validacion["sql"]
+    for salida in definicion.get("salidas", []):
+        yield salida["sql"]
+    if "transformacion_sql" in definicion:
+        yield definicion["transformacion_sql"]
+
+
+def _parametros_usados_en_sql(definicion: dict) -> set:
+    from . import sustitucion
+
+    usados = set()
+    for sql in _todos_los_sql(definicion):
+        usados |= {
+            n[2:] for n in sustitucion.nombres_usados(sql) if n.startswith("p_")
+        }
+    return usados
+
+
+def _errores_de_variables(definicion: dict) -> list:
+    """Que toda `$variable` usada en un SQL exista, sin ejecutar nada.
+
+    Una errata en `$v_totl` no se descubriría hasta que la carga corre, y
+    posiblemente en el peor momento: dentro de una acción que ya ha escrito
+    media tabla. Aquí se caza al validar la definición.
+
+    También se comprueba el orden: una variable capturada en `tras_promover`
+    no puede usarse en algo que corre en `tras_validar`, y `$promovidas` y
+    `$borradas` no existen hasta que hay promoción.
+    """
+    from . import sustitucion
+
+    orden = {m: i for i, m in enumerate(MOMENTOS)}
+    # `al_fallar` sucede en la rama del stop, antes de promover: lo que se ve
+    # ahí es lo mismo que en `tras_validar`.
+    orden["al_fallar"] = orden["tras_validar"]
+
+    declaradas_en = {}  # nombre de variable -> primer momento en que existe
+    for variable in definicion.get("variables", []):
+        momento = variable.get("momento", "tras_validar")
+        # No se puede saber qué columnas devuelve un SELECT sin ejecutarlo, así
+        # que lo declarado no se puede verificar aquí; lo que sí se sabe es a
+        # partir de cuándo estarán disponibles las que produzca.
+        declaradas_en.setdefault(momento, []).append(variable["sql"])
+
+    parametros_ = {f"p_{p['nombre']}" for p in definicion.get("parametros", [])}
+    tardias = {"promovidas", "borradas"}
+
+    def disponibles(momento):
+        nombres = set(VARIABLES_DE_SISTEMA) - tardias | parametros_
+        if orden.get(momento, 0) >= orden["tras_promover"]:
+            nombres |= tardias
+        return nombres
+
+    errores = []
+
+    def revisar(sql, momento, donde):
+        usados = set(sustitucion.nombres_usados(sql))
+        # Las `v_` no se pueden comprobar por nombre (dependen del resultado de
+        # un SELECT), pero sí que haya alguna variable declarada antes.
+        propias = {u for u in usados if u.startswith("v_")}
+        if propias and not any(
+            orden.get(m, 0) <= orden.get(momento, 0) for m in declaradas_en
+        ):
+            errores.append(
+                f"{donde} usa {sorted('$' + p for p in propias)} pero la carga no "
+                f"declara ninguna variable disponible en el momento '{momento}'"
+            )
+        for nombre in sorted(usados - propias - disponibles(momento)):
+            if nombre in tardias:
+                errores.append(
+                    f"{donde} usa ${nombre}, que no existe hasta 'tras_promover' "
+                    f"(este SQL corre en '{momento}')"
+                )
+            else:
+                errores.append(
+                    f"{donde} usa una variable no definida: ${nombre}. "
+                    f"Disponibles: {', '.join('$' + n for n in sorted(disponibles(momento)))}"
+                )
+
+    for accion in definicion.get("acciones", []):
+        revisar(accion["sql"], accion["momento"], f"la acción '{accion['momento']}'")
+    for variable in definicion.get("variables", []):
+        momento = variable.get("momento", "tras_validar")
+        revisar(variable["sql"], momento, f"la variable de '{momento}'")
+    for validacion in definicion.get("validaciones", []):
+        revisar(validacion["sql"], "tras_validar", f"la validación '{validacion['nombre']}'")
+    if "transformacion_sql" in definicion:
+        revisar(definicion["transformacion_sql"], "tras_validar", "transformacion_sql")
+    for salida in definicion.get("salidas", []):
+        revisar(salida["sql"], "tras_promover", f"la salida '{salida['nombre']}'")
+
+    return errores
+
+
 def validar(definicion: dict, con=None) -> list:
     """Devuelve la lista de errores encontrados (vacía si es válida). No lanza excepción."""
     errores = []
@@ -185,9 +313,13 @@ def validar(definicion: dict, con=None) -> list:
     for campo in definicion["mapping"]:
         destinos.append(campo["destino"])
         tipos_op = {op.get("tipo") for op in campo.get("operaciones", [])}
-        if "origen" not in campo and not tipos_op & {"const", "parametro"}:
+        # Las tres operaciones que producen un valor sin leer una columna:
+        # escrito en la definición, tecleado al lanzar, o leído de una celda
+        # suelta del propio fichero.
+        if "origen" not in campo and not tipos_op & {"const", "parametro", "celda"}:
             errores.append(
-                f"campo '{campo['destino']}' no tiene 'origen' ni una operación 'const' o 'parametro'"
+                f"campo '{campo['destino']}' no tiene 'origen' ni una operación "
+                f"'const', 'parametro' o 'celda'"
             )
         for op in campo.get("operaciones", []):
             try:
@@ -202,9 +334,14 @@ def validar(definicion: dict, con=None) -> list:
                         f"que no está en 'parametros' {sorted(parametros_declarados) or '(vacío)'}"
                     )
 
+    # Un parámetro también puede usarse solo en el SQL de la carga (`$p_x`),
+    # sin llegar a ninguna columna: filtrar la transformación por la tienda es
+    # tan legítimo como escribirla en una fila.
+    parametros_usados |= _parametros_usados_en_sql(definicion)
+
     for huerfano in sorted(parametros_declarados - parametros_usados):
         errores.append(
-            f"el parámetro '{huerfano}' está declarado pero no lo usa ningún campo del mapping"
+            f"el parámetro '{huerfano}' está declarado y no lo usa ni el mapping ni ningún SQL"
         )
 
     if len(set(destinos)) != len(destinos):
@@ -230,6 +367,21 @@ def validar(definicion: dict, con=None) -> list:
         for clave in campos_singularidad:
             if clave not in destinos:
                 errores.append(f"campo de singularidad '{clave}' no está en el mapping")
+
+    errores.extend(_errores_de_variables(definicion))
+
+    if definicion["formato"] != "excel":
+        celdas = [
+            op["referencia"]
+            for campo in definicion.get("mapping", [])
+            for op in campo.get("operaciones", [])
+            if op.get("tipo") == "celda"
+        ]
+        if celdas:
+            errores.append(
+                f"la operación 'celda' ({', '.join(celdas)}) requiere formato 'excel': "
+                f"un CSV no tiene celdas con posición"
+            )
 
     if con is not None:
         tabla_mapping = definicion["tabla_hall"] if tiene_hall else definicion["tabla_destino"]

@@ -41,13 +41,21 @@ class ValidacionInvalidaError(ValueError):
     realidad nunca llegó a comprobar nada."""
 
 
-def ejecutar(con, validaciones: list) -> list:
-    """Ejecuta las validaciones y devuelve un resultado por cada una."""
+def ejecutar(con, validaciones: list, contexto: dict = None) -> list:
+    """Ejecuta las validaciones y devuelve un resultado por cada una.
+
+    `contexto` son las variables disponibles (ver `motor/sustitucion.py`). Va
+    vacío cuando la validación viene del catálogo y la dispara una escritura
+    del CLI: ahí no hay carga, y un invariante de tabla que dependiera de una
+    variable de carga no tendría sentido.
+    """
+    from . import sustitucion
+
     resultados = []
     for validacion in validaciones or []:
         limite = validacion.get("limite_detalle", LIMITE_DETALLE_POR_DEFECTO)
         try:
-            cursor = con.execute(validacion["sql"])
+            cursor = sustitucion.ejecutar(con, validacion["sql"], contexto or {})
             columnas = [d[0] for d in cursor.description] if cursor.description else []
             filas = cursor.fetchall()
         except Exception as exc:

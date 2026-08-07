@@ -195,12 +195,27 @@ lo pongas por rellenar. Pregúntalo solo si el fichero es grande o llega muy
 a menudo, que es cuando el espacio importa — un extracto de 4 KB mensual no
 justifica la conversación. Ver README, "Historial de documentos".
 
-## 6e. ¿Hay datos que no vienen dentro del fichero?
+## 6e. ¿Hay datos que no vienen en ninguna columna?
 
-Si el fichero no contiene algo que hace falta para saber a qué se refiere —el
-caso típico es un mismo formato que llega de varios sitios: veinte tiendas
-mandando el mismo export de pedidos—, eso se declara como `parametros` y se
-pide al ejecutar. Ver README, "Parámetros".
+Dos casos distintos, y confundirlos sale caro.
+
+**Está en el fichero, pero en la cabecera.** Un Excel con la sucursal en `B5`,
+el mes en `B6` y la tabla empezando en la fila 10. Eso es la operación
+`celda`, con `fila_cabecera` apuntando a la fila de nombres de columna. **No
+lo declares como parámetro**: el dato está ahí, y pedirlo al ejecutar obliga a
+abrir el Excel para saber qué teclear y permite cargar una sucursal con el
+nombre de otra. Al perfilar se detecta solo: si las primeras filas tienen una
+o dos celdas sueltas y la tabla empieza más abajo, pregunta qué es cada una.
+
+**No está en el fichero en absoluto.** El caso típico es un mismo formato que
+llega de varios sitios: veinte tiendas mandando el mismo export de pedidos, sin
+que la tienda aparezca en ningún lado. Eso sí es `parametros`, y se pide al
+ejecutar. Ver README, "Parámetros".
+
+En los dos casos, la pregunta que va detrás es la misma y es la importante:
+**si reenvían el fichero de esa sucursal y ese mes corregido, ¿qué debe
+desaparecer?** Lo que conteste el usuario son los `campos_singularidad`, y esos
+campos tienen que estar entre ellos o recargar una sucursal borrará las demás.
 
 Detectarlo es fácil al perfilar: si dos ficheros de la misma carpeta tienen
 las mismas columnas pero corresponden a ámbitos distintos, falta un

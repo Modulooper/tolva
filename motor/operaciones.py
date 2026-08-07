@@ -46,6 +46,19 @@ SCHEMAS = {
         "required": ["tipo", "nombre"],
         "additionalProperties": False,
     },
+    # Un dato de cabecera: la sucursal en B5, el mes en B6. No está en ninguna
+    # columna, así que no tiene `origen`; se lee una vez al abrir el fichero y
+    # se reparte igual a todas las filas, como `const` o `parametro`.
+    "celda": {
+        "type": "object",
+        "properties": {
+            "tipo": {"const": "celda"},
+            # Referencia de Excel de toda la vida: columna y fila, sin $.
+            "referencia": {"type": "string", "pattern": "^[A-Za-z]{1,3}[1-9][0-9]{0,6}$"},
+        },
+        "required": ["tipo", "referencia"],
+        "additionalProperties": False,
+    },
     "date_format": {
         "type": "object",
         "properties": {
@@ -112,6 +125,22 @@ def _aplicar_parametro(valor, params, contexto):
     return contexto.get("parametros", {}).get(params["nombre"])
 
 
+def _aplicar_celda(valor, params, contexto):
+    """El valor de una celda fija del propio fichero.
+
+    A diferencia de `parametro`, que hay que teclear al lanzar la carga, esto
+    lo lee del sitio donde ya está. El dato venía en el fichero: pedirlo
+    aparte es invitar a que alguien escriba una sucursal por otra.
+    """
+    celdas = contexto.get("celdas")
+    if celdas is None or params["referencia"] not in celdas:
+        raise ValueError(
+            f"no se pudo leer la celda {params['referencia']} del fichero "
+            f"(la operación 'celda' solo funciona con formato excel)"
+        )
+    return celdas[params["referencia"]]
+
+
 def _aplicar_date_format(valor, params, contexto):
     return fechas.aplicar_fecha(valor, contexto["resolucion_fecha"])
 
@@ -122,6 +151,7 @@ APLICAR = {
     "cast": _aplicar_cast,
     "const": _aplicar_const,
     "parametro": _aplicar_parametro,
+    "celda": _aplicar_celda,
     "date_format": _aplicar_date_format,
 }
 

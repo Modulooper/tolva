@@ -16,7 +16,14 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import cargas, db, documentos, operaciones, parametros, salidas, validaciones
+from . import cargas, db, documentos, operaciones, parametros, salidas, sustitucion, validaciones
+
+
+class VariableInvalidaError(ValueError):
+    """El SQL de una variable no se pudo evaluar o no devolvió una sola fila.
+    Es un fallo de la definición, no un dato malo: se trata como error duro
+    para no seguir con una variable que no vale lo que dice."""
+
 
 # Una sola implementación del hash para todo el sistema: el que identifica la
 # ejecución es el mismo que direcciona el documento en el almacén.
@@ -86,6 +93,43 @@ def _leer_excel(ruta: Path, hoja, fila_cabecera: int):
     return _leer_excel_openpyxl(ruta, hoja, fila_cabecera)
 
 
+def celdas_referenciadas(definicion: dict) -> list:
+    """Las celdas que pide el mapping, en orden y sin repetir."""
+    refs = []
+    for campo in definicion.get("mapping", []):
+        for op in campo.get("operaciones", []):
+            if op.get("tipo") == "celda" and op["referencia"] not in refs:
+                refs.append(op["referencia"])
+    return refs
+
+
+def leer_celdas(ruta: Path, definicion: dict) -> dict:
+    """{referencia: valor} de las celdas sueltas que pide el mapping.
+
+    Se abre el libro una segunda vez, con openpyxl, porque el lector rápido de
+    DuckDB devuelve una tabla y aquí hacen falta posiciones concretas. Solo
+    ocurre si la carga usa `celda`, así que quien no las use no lo paga.
+    """
+    refs = celdas_referenciadas(definicion)
+    if not refs:
+        return {}
+
+    import openpyxl
+
+    wb = openpyxl.load_workbook(ruta, data_only=True, read_only=False)
+    try:
+        hoja = definicion.get("hoja")
+        if isinstance(hoja, str) and hoja:
+            ws = wb[hoja]
+        elif isinstance(hoja, int):
+            ws = wb.worksheets[hoja]
+        else:
+            ws = wb.active
+        return {ref: ws[ref].value for ref in refs}
+    finally:
+        wb.close()
+
+
 def leer_fichero(ruta: Path, definicion: dict):
     if definicion["formato"] == "csv":
         return _leer_csv(
@@ -105,20 +149,23 @@ class ResultadoProceso:
     columnas_extra: set
 
 
-def procesar_filas(cabecera: list, filas: list, definicion: dict, valores_parametros=None) -> ResultadoProceso:
+def procesar_filas(cabecera: list, filas: list, definicion: dict, valores_parametros=None,
+                   celdas=None) -> ResultadoProceso:
     mapping = definicion["mapping"]
     origenes_declarados = {c["origen"] for c in mapping if "origen" in c}
     columnas_extra = {c for c in cabecera if c and c not in origenes_declarados}
     valores_parametros = valores_parametros or {}
+    celdas = celdas or {}
 
     contextos = {}
     for campo in mapping:
         if "origen" not in campo:
-            contextos[campo["destino"]] = {"parametros": valores_parametros}
+            contextos[campo["destino"]] = {"parametros": valores_parametros, "celdas": celdas}
             continue
         valores_columna = [fila.get(campo["origen"]) for fila in filas]
         contexto = operaciones.preparar_contexto(campo, valores_columna)
         contexto["parametros"] = valores_parametros
+        contexto["celdas"] = celdas
         contextos[campo["destino"]] = contexto
 
     validas, rechazadas = [], []
@@ -209,7 +256,8 @@ def _cargar_hall(con, tabla_hall: str) -> None:
     con.execute(f"INSERT INTO {tabla_hall} ({lista}) SELECT {lista} FROM {TABLA_ENTRANTE}")
 
 
-def _promover_desde_sql(con, tabla_destino: str, campos_singularidad: list, sql_origen: str) -> tuple:
+def _promover_desde_sql(con, tabla_destino: str, campos_singularidad: list, sql_origen: str,
+                        contexto: dict = None) -> tuple:
     """Promoción sin pasar los datos por Python: el borrado por singularidad y
     la inserción se resuelven dentro del motor.
 
@@ -217,7 +265,8 @@ def _promover_desde_sql(con, tabla_destino: str, campos_singularidad: list, sql_
     traer columnas de trabajo (o `ejecucion_id` en tablas que no la tengan) que
     no deben viajar.
     """
-    con.execute(f"CREATE OR REPLACE TEMP TABLE _transformadas AS {sql_origen}")
+    consulta, valores = sustitucion.resolver(sql_origen, contexto or {})
+    con.execute(f"CREATE OR REPLACE TEMP TABLE _transformadas AS {consulta}", valores)
     promovidas = con.execute("SELECT count(*) FROM _transformadas").fetchone()[0]
     columnas = sorted(_columnas_de(con, "_transformadas") & _columnas_de(con, tabla_destino))
     lista = ", ".join(columnas)
@@ -234,14 +283,46 @@ def _promover_desde_sql(con, tabla_destino: str, campos_singularidad: list, sql_
     return promovidas, borradas
 
 
-def _ejecutar_acciones(con, definicion: dict, momento: str) -> list:
+def _ejecutar_acciones(con, definicion: dict, momento: str, contexto: dict = None) -> list:
     """Acciones SQL declaradas para un momento del ciclo de vida."""
     ejecutadas = []
     for accion in definicion.get("acciones", []):
         if accion["momento"] == momento:
-            con.execute(accion["sql"])
+            sustitucion.ejecutar(con, accion["sql"], contexto or {})
             ejecutadas.append(accion["sql"])
     return ejecutadas
+
+
+def _capturar_variables(con, definicion: dict, momento: str, contexto: dict) -> dict:
+    """Evalúa las variables declaradas para este momento y las añade al
+    contexto con prefijo `v_`.
+
+    Cada columna de la fila resultante es una variable, así que una consulta
+    puede definir varias de golpe. Que devuelva cero filas o más de una es un
+    error duro y no un nulo silencioso: una variable vacía porque un WHERE no
+    casó acaba en un UPDATE y el fallo se descubre en los datos, no aquí.
+    """
+    capturadas = {}
+    for variable in definicion.get("variables", []):
+        if variable.get("momento", "tras_validar") != momento:
+            continue
+        try:
+            cursor = sustitucion.ejecutar(con, variable["sql"], contexto)
+            columnas = [d[0] for d in cursor.description] if cursor.description else []
+            filas = cursor.fetchall()
+        except Exception as exc:
+            raise VariableInvalidaError(
+                f"la variable de momento '{momento}' no se pudo evaluar: {exc}"
+            ) from exc
+        if len(filas) != 1:
+            raise VariableInvalidaError(
+                f"el SQL de una variable ({momento}) devolvió {len(filas)} filas y "
+                f"debe devolver exactamente 1: {variable['sql']}"
+            )
+        for columna, valor in zip(columnas, filas[0]):
+            capturadas[columna] = valor
+            contexto[f"v_{columna}"] = valor
+    return capturadas
 
 
 def _insertar_rechazos(con, ejecucion_id: int, rechazadas: list) -> None:
@@ -299,7 +380,12 @@ def dry_run_carga(nombre_carga: str, db_path=None, valores_parametros=None) -> d
         resultados = []
         for ruta in ficheros:
             cabecera, filas = leer_fichero(ruta, definicion)
-            resultado = procesar_filas(cabecera, filas, definicion, resueltos)
+            # El dry-run tiene que ver exactamente lo que verá la carga: si no
+            # leyera las celdas, esos campos saldrían vacíos aquí y con valor
+            # al ejecutar, que es la peor forma de enterarse.
+            resultado = procesar_filas(
+                cabecera, filas, definicion, resueltos, leer_celdas(ruta, definicion)
+            )
             resultados.append(
                 {
                     "fichero": ruta.name,
@@ -331,7 +417,8 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool,
 
     inicio = time.perf_counter()
     cabecera, filas = leer_fichero(ruta, definicion)
-    resultado = procesar_filas(cabecera, filas, definicion, valores_parametros)
+    celdas = leer_celdas(ruta, definicion)
+    resultado = procesar_filas(cabecera, filas, definicion, valores_parametros, celdas)
     # Si se llega aquí, el fichero se leyó y procesó fila a fila sin excepción:
     # las filas inválidas quedan en _rechazos, no convierten la ejecución en un fallo.
 
@@ -376,12 +463,26 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool,
         # siguiente archivado del mismo fichero los reutiliza.
         documentos.archivar(con, ruta, ejecucion_id, documentos.TAG_ORIGEN)
 
-        _ejecutar_acciones(con, definicion, "antes")
+        # El contexto de variables se construye aquí, con el id ya conocido, y
+        # va creciendo a lo largo del ciclo: `$promovidas` no existe hasta que
+        # hay promoción, y usarlo antes tiene que fallar diciéndolo.
+        contexto = sustitucion.contexto_de(
+            ejecucion_id=ejecucion_id,
+            carga=nombre_carga,
+            fichero=ruta.name,
+            hash_fichero=hash_fichero,
+            parametros=valores_parametros or {},
+        )
+
+        _ejecutar_acciones(con, definicion, "antes", contexto)
+        _capturar_variables(con, definicion, "antes", contexto)
         _crear_entrante(con, resultado.validas, ejecucion_id, columnas_mapping)
         if cargas.usa_hall(definicion):
             _cargar_hall(con, definicion["tabla_hall"])
 
-        resultados_validacion = validaciones.ejecutar(con, definicion.get("validaciones", []))
+        resultados_validacion = validaciones.ejecutar(
+            con, definicion.get("validaciones", []), contexto
+        )
         _registrar_validaciones(con, ejecucion_id, f"carga:{nombre_carga}", resultados_validacion)
 
         if validaciones.hay_stop(resultados_validacion):
@@ -389,7 +490,7 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool,
             # registra la ejecución) para poder investigar el fichero rechazado
             # con `db consultar`. Si se quiere limpiar, la carga declara una
             # acción con momento "al_fallar". El destino no se ha tocado.
-            _ejecutar_acciones(con, definicion, "al_fallar")
+            _ejecutar_acciones(con, definicion, "al_fallar", contexto)
             con.execute(
                 "UPDATE _ejecuciones SET estado = 'ERROR', duracion = ? WHERE id = ?",
                 [time.perf_counter() - inicio, ejecucion_id],
@@ -410,15 +511,24 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool,
             }
 
         # Superados los stops, se ejecutan las acciones dependientes y se promueve.
-        _ejecutar_acciones(con, definicion, "tras_validar")
+        _capturar_variables(con, definicion, "tras_validar", contexto)
+        _ejecutar_acciones(con, definicion, "tras_validar", contexto)
         origen = (
             definicion["transformacion_sql"]
             if cargas.usa_hall(definicion)
             else f"SELECT * FROM {TABLA_ENTRANTE}"
         )
         promovidas, borradas = _promover_desde_sql(
-            con, definicion["tabla_destino"], campos_singularidad, origen
+            con, definicion["tabla_destino"], campos_singularidad, origen, contexto
         )
+
+        # Solo a partir de aquí existe el resultado de la escritura, y es lo
+        # único que este momento aporta sobre `tras_validar`: derivar de lo que
+        # de verdad quedó en el destino, sin reimplementar la singularidad.
+        contexto["promovidas"] = promovidas
+        contexto["borradas"] = borradas
+        _capturar_variables(con, definicion, "tras_promover", contexto)
+        _ejecutar_acciones(con, definicion, "tras_promover", contexto)
 
         con.execute(
             "UPDATE _ejecuciones SET estado = 'OK', duracion = ? WHERE id = ?",
@@ -435,9 +545,9 @@ def _procesar_fichero(con, definicion: dict, ruta: Path, forzar: bool,
 
     # Las salidas se generan con la carga ya confirmada: escribir ficheros no
     # debe poder deshacer datos correctos, y el SELECT debe ver lo promovido.
-    ficheros_salida = salidas.generar_todas(
-        con, definicion, {"carga": nombre_carga, "ejecucion_id": ejecucion_id}
-    )
+    # Con el contexto completo: una salida puede filtrar por `$p_tienda` o por
+    # `$v_total`, y nombrar el fichero con `{carga}` como siempre.
+    ficheros_salida = salidas.generar_todas(con, definicion, contexto)
 
     return {
         "fichero": ruta.name,

@@ -9,6 +9,36 @@ falta. El **porqué** de cada decisión de modelo sí se conserva, pero no en es
 fichero: vive en la tabla `_decisiones` del propio almacén, junto a la
 migración que la tomó.
 
+## [0.2.0] — 2026-08-07
+
+### Añadido
+
+- **Variables en el SQL de una carga** (`$nombre`), disponibles en
+  `transformacion_sql`, acciones, validaciones y salidas. Tres familias: de
+  sistema (`$ejecucion_id`, `$carga`, `$fichero`, `$hash_fichero`,
+  `$promovidas`, `$borradas`), parámetros (`$p_tienda`) y calculadas por la
+  propia carga (`$v_total`). Se enlazan como parámetros de consulta, nunca se
+  interpolan como texto: un valor con comilla no puede romper el SQL. `etl
+  validar` comprueba que toda variable usada existe, sin ejecutar nada.
+- **Bloque `variables`**: valores calculados con un `SELECT` y fijados en el
+  momento en que se capturan. Cada columna del resultado es una variable. Que
+  devuelva cero filas o más de una es un error duro.
+- **Momento `tras_promover`** para acciones y variables: el único desde el que
+  se ve el resultado real de la escritura, dentro de la misma transacción.
+  Permite alimentar una segunda tabla con una singularidad distinta sin
+  reimplementar la regla de promoción.
+- **Operación `celda`**: lee un dato de una posición fija del Excel (la
+  sucursal en `B5`) y lo reparte por todas las filas del detalle. Es lo que
+  hace automática una carga cuyos metadatos están en la cabecera, en vez de
+  tener que teclearlos al ejecutar.
+
+### Corregido
+
+- Un parámetro declarado y usado solo en el SQL ya no se rechaza como
+  huérfano: antes solo contaba si llegaba a una columna del mapping.
+- El dry-run lee las celdas de cabecera igual que la carga real. Sin eso, la
+  previsualización mostraba esos campos vacíos y la ejecución los rellenaba.
+
 ## [0.1.0] — 2026-08-07
 
 Primera versión pública.

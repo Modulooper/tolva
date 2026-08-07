@@ -535,20 +535,43 @@ y no queda nada grabado.
 
 ```json
 "acciones": [
-  {"momento": "antes",        "sql": "..."},
-  {"momento": "tras_validar", "sql": "..."},
-  {"momento": "al_fallar",    "sql": "DELETE FROM hall_previsiones"}
+  {"momento": "antes",         "sql": "..."},
+  {"momento": "tras_validar",  "sql": "..."},
+  {"momento": "tras_promover", "sql": "..."},
+  {"momento": "al_fallar",     "sql": "DELETE FROM hall_previsiones"}
 ]
 ```
 
 - **`antes`**: antes de materializar los datos entrantes.
-- **`tras_validar`**: superados todos los stops, antes de promover.
+- **`tras_validar`**: superados todos los stops, **antes** de promover.
+- **`tras_promover`**: con el destino ya escrito. Es el único momento desde el
+  que se ve el resultado de la carga, y el único donde existen `$promovidas`
+  y `$borradas`.
 - **`al_fallar`**: cuando un stop ha abortado la carga.
+
+Todo corre dentro de la **misma transacción** que la promoción: si una acción
+revienta, se revierte también lo que se acababa de escribir. O cuadra todo o
+no cuadra nada.
 
 Por defecto, un stop **no** limpia nada: la hall conserva los datos del fichero
 rechazado y la ejecución queda registrada, para poder investigar con
 `db consultar`. Si se quiere limpiar, se declara explícitamente con
 `al_fallar`.
+
+**La diferencia entre `tras_validar` y `tras_promover` importa más de lo que
+parece.** En `tras_validar` tienes la hall (solo lo que trae este fichero) y
+el destino **como estaba antes**. Si quieres alimentar una segunda tabla con
+una singularidad distinta de la del destino —un histórico que acumula, un
+agregado por sucursal— desde `tras_validar` tendrías que reproducir a mano la
+regla de promoción para saber cómo va a quedar, y entonces
+`campos_singularidad` estaría declarada en dos sitios: en el JSON y en tu SQL,
+donde nadie la valida. Desde `tras_promover` lees el resultado y ya está.
+
+Esa segunda tabla la mantienes tú, con tu propio `DELETE` + `INSERT`. Es más
+dominio a cambio de más responsabilidad, y conviene saber qué se deja fuera:
+el motor no le pondrá `ejecucion_id` a esas filas salvo que lo escribas
+(`$ejecucion_id` está disponible, ver "Variables en el SQL"), y sin esa
+columna no se le pueden adjuntar documentos ni encadenar ediciones.
 
 ### Trazabilidad por carga
 
@@ -617,11 +640,43 @@ a entrar.
 ## Vocabulario de operaciones ETL
 
 `rename` · `cast` (`varchar`/`integer`/`double`/`boolean`/`date`) · `trim` ·
-`const` · `parametro` · `date_format`. Un tipo no registrado aquí se rechaza
-en `etl validar`, no en `etl ejecutar`.
+`const` · `parametro` · `celda` · `date_format`. Un tipo no registrado aquí se
+rechaza en `etl validar`, no en `etl ejecutar`.
 
-`parametro` es como `const`, pero el valor se resuelve al ejecutar la carga en
-vez de estar escrito en la definición (ver "Parámetros").
+Tres producen un valor sin leer ninguna columna: `const` lo lleva escrito en
+la definición, `parametro` lo pide al ejecutar la carga (ver "Parámetros") y
+`celda` lo lee de una posición fija del propio fichero.
+
+### `celda`: los datos que están en la cabecera del Excel
+
+El caso habitual: un informe con la sucursal en `B5`, el mes en `B6` y el año
+en `B7`, y la tabla de detalle empezando en la fila 10. Esos tres datos son de
+todas las filas, pero no están en ninguna columna.
+
+```json
+"fila_cabecera": 10,
+"mapping": [
+  {"origen": "Ref", "destino": "referencia", "operaciones": [{"tipo": "trim"}]},
+  {"destino": "sucursal", "operaciones": [{"tipo": "celda", "referencia": "B5"}]},
+  {"destino": "mes",      "operaciones": [{"tipo": "celda", "referencia": "B6"}]},
+  {"destino": "anio",     "operaciones": [
+      {"tipo": "celda", "referencia": "B7"}, {"tipo": "cast", "tipo_destino": "integer"}]}
+]
+```
+
+La celda se lee **una vez** al abrir el fichero y se reparte por todas las
+filas, y admite operaciones encadenadas detrás como cualquier otra columna.
+Solo funciona con `formato: "excel"` —un CSV no tiene celdas con posición— y
+`etl validar` lo rechaza si se declara sobre un CSV.
+
+Esto es lo que hace que la carga siga siendo automática. La alternativa era
+declarar la sucursal como parámetro y teclearla al ejecutar, lo que obliga a
+abrir el Excel para saber qué escribir y deja la puerta abierta a cargar los
+datos de una sucursal con el nombre de otra.
+
+Y ojo con la decisión que va debajo: si un fichero corregido debe sustituir
+solo su sucursal y su mes, esos tres campos tienen que estar en
+`campos_singularidad` (ver "Cómo escriben las cargas de fichero").
 
 `date_format` nunca delega el parseo al modelo: si dos formatos candidatos
 son ambiguos en día/mes (`%d/%m/%Y` vs `%m/%d/%Y`), se resuelve por evidencia
@@ -634,6 +689,58 @@ Excel se detectan por rango numérico plausible, con época configurable
 decimales en `,` (p.ej. extractos bancarios españoles). La definición de
 carga admite un campo opcional `encoding` (por defecto `utf-8-sig`) para
 ficheros CSV que no vengan en UTF-8.
+
+## Variables en el SQL
+
+Todo el SQL de una carga —`transformacion_sql`, acciones, validaciones y
+salidas— admite variables con `$nombre`. Hay tres familias, y el prefijo no
+separa espacios de nombres (el `$` ya evita chocar con una columna): separa
+**quién garantiza el valor**.
+
+| | Ejemplo | Quién responde |
+|---|---|---|
+| Sistema | `$ejecucion_id`, `$carga`, `$fichero`, `$hash_fichero`, `$promovidas`, `$borradas` | el motor |
+| Parámetros | `$p_tienda` | quien lanza la carga |
+| Variables | `$v_total` | quien escribió la carga |
+
+**Se enlazan, no se interpolan.** `$v_nombre` se convierte en un marcador y el
+valor viaja aparte, tipado. No es un detalle de estilo: pegando cadenas, una
+sucursal llamada `O'Donnell` rompe la consulta y una fecha se serializa según
+el locale. La contrapartida es que una variable solo puede ir **donde cabe un
+valor**, nunca como nombre de tabla o de columna. Es deliberado.
+
+`etl validar` comprueba que toda variable usada existe, sin ejecutar nada, así
+que una errata en `$v_totl` se ve al definir la carga y no a mitad de una
+acción que ya ha escrito media tabla.
+
+### Variables de usuario
+
+```json
+"variables": [
+  {"momento": "tras_promover",
+   "sql": "SELECT count(*) AS lineas, sum(importe) AS total FROM pedido"}
+]
+```
+
+**Cada columna del resultado es una variable**: eso define `$v_lineas` y
+`$v_total` de una vez. El SQL tiene que devolver **exactamente una fila**;
+cero o varias es un error duro y no un nulo silencioso, porque una variable
+vacía porque un `WHERE` no casó acaba dentro de un `UPDATE` y el fallo se
+descubre en los datos.
+
+El valor queda **fijado en el momento en que se captura**. Una variable
+capturada en `tras_validar` conserva lo que valía entonces aunque la tabla
+cambie después.
+
+### Por qué `$ejecucion_id` es de sistema y no se calcula
+
+Tentación evidente: `SELECT max(id) FROM _ejecuciones`. Hoy acierta, pero
+acierta **por casualidad** —porque una carga registra exactamente una
+ejecución—, y no por definición. El día que eso cambie no fallará: escribirá
+un número plausible y equivocado, que es el peor error de trazabilidad que
+existe porque solo se nota al preguntar de dónde vino un dato, meses después.
+
+El motor conoce el id antes de escribir nada. Por eso lo da hecho.
 
 ## Catálogo semántico
 
