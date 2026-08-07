@@ -37,20 +37,27 @@ def _aplicadas(con: duckdb.DuckDBPyConnection) -> set:
     return {fila[0] for fila in filas}
 
 
-def _pendientes(migraciones_dir: Path, aplicadas: set) -> list:
+def _pendientes(migraciones_dir: Path, aplicadas: set, con_ejemplos: bool = False) -> list:
     # Núcleo primero y capa propia después: una migración propia puede
     # apoyarse en tablas del framework, nunca al revés (ver motor/rutas.py).
-    ficheros = rutas.ficheros("migraciones", "*.sql", migraciones_dir)
+    ficheros = rutas.ficheros("migraciones", "*.sql", migraciones_dir, con_ejemplos=con_ejemplos)
     return [f for f in ficheros if f.name not in aplicadas]
 
 
-def migrar(db_path: Path = DB_PATH, migraciones_dir: Path = MIGRACIONES_DIR) -> list:
-    """Aplica las migraciones pendientes en orden. Devuelve los nombres aplicados."""
+def migrar(db_path: Path = DB_PATH, migraciones_dir: Path = MIGRACIONES_DIR,
+           con_ejemplos: bool = False) -> list:
+    """Aplica las migraciones pendientes en orden. Devuelve los nombres aplicados.
+
+    Las de la capa `ejemplos/` solo entran con `con_ejemplos=True`: son datos
+    dummy de un dominio inventado y nadie debe encontrárselos sin pedirlos.
+    Una vez aplicadas quedan en `_migraciones` como cualquier otra, así que un
+    `migrar` normal posterior no las deshace ni las vuelve a aplicar.
+    """
     con = conectar(db_path)
     try:
         _asegurar_tabla_migraciones(con)
         aplicadas = _aplicadas(con)
-        pendientes = _pendientes(migraciones_dir, aplicadas)
+        pendientes = _pendientes(migraciones_dir, aplicadas, con_ejemplos)
         resultado = []
         for fichero in pendientes:
             sql = fichero.read_text(encoding="utf-8")

@@ -26,13 +26,16 @@ migraciones en orden. `datos/`, `entrada/` y `export/` están en `.gitignore`
 (son estado local, no código), así que cada instalación arranca con el
 almacén vacío.
 
-Comprobación rápida:
+Una instalación nueva no crea ninguna tabla de negocio: el núcleo es framework
+y solo monta sus tablas de sistema. Para ver el sistema funcionando con datos,
+instala el dominio de ejemplo:
 
 ```bash
-python -m motor.cli ticket listar
-python -m motor.cli idea listar
+python -m motor.cli db migrar --con-ejemplos
+python -m motor.cli registro listar demo_venta
 ```
-Ambos deberían devolver "(0 filas)" en una instalación nueva sin errores.
+
+Debería devolver las ventas dummy de la librería de ejemplo, sin errores.
 
 ### Batería de pruebas
 
@@ -40,9 +43,11 @@ Ambos deberían devolver "(0 filas)" en una instalación nueva sin errores.
 python -m unittest discover -s pruebas -t .
 ```
 
-90 pruebas que cubren instalación, motor ETL, singularidad, hall, stops y
-alarmas, salidas, CRUD, trazabilidad, documentos, historial/purga, parámetros,
-diagrama del modelo, descripciones de carga y separación núcleo/capa propia. No hacen falta dependencias
+119 pruebas que cubren instalación, motor ETL, singularidad, hall, stops y
+alarmas, salidas, CRUD genérico, trazabilidad, documentos, historial/purga,
+parámetros, diagrama del modelo, descripciones de carga y separación
+núcleo/ejemplos/capa propia. Corren contra el dominio de ejemplo, no contra
+ningún proceso real. No hacen falta dependencias
 extra: usan `unittest` de la librería estándar.
 
 Cada prueba corre contra un **almacén temporal recién migrado**, con su propio
@@ -77,9 +82,11 @@ vía pensada ni probada para este proyecto.
 
 ```
 /motor/            código Python del ETL y la CLI
-/migraciones/       001_nucleo.sql, 002_..., aplicadas en orden por `db migrar`
+/migraciones/       001_nucleo.sql (solo tablas de sistema), 003_..., en orden
 /cargas/            una definición JSON por tipo de carga
 /catalogo/          catálogo semántico del modelo de datos
+/ejemplos/          dominio de ejemplo (una librería) con datos dummy: mismas
+                    carpetas dentro, solo se instala con `--con-ejemplos`
 /entrada/           carpetas vigiladas donde se depositan los ficheros a cargar (no versionado)
 /export/            vistas de consumo volcadas a parquet/csv
 /datos/almacen.duckdb   estado (no versionado)
@@ -93,15 +100,31 @@ vía pensada ni probada para este proyecto.
 
 El framework y lo que tú cargas con él no viven en el mismo sitio:
 
-| | Dónde | Se versiona en |
-|---|---|---|
-| **Núcleo** | `migraciones/`, `catalogo/`, `cargas/` | este repositorio |
-| **Capa propia** | `propio/migraciones/`, `propio/catalogo/`, `propio/cargas/` | el tuyo, privado |
+| | Dónde | Se versiona en | Se instala |
+|---|---|---|---|
+| **Núcleo** | `migraciones/`, `catalogo/`, `cargas/` | este repositorio | siempre |
+| **Ejemplos** | `ejemplos/…` | este repositorio | con `--con-ejemplos` |
+| **Capa propia** | `propio/…` | el tuyo, privado | siempre |
 
-`motor/rutas.py` resuelve las dos capas de forma transparente: `db migrar`
+`motor/rutas.py` resuelve las tres capas de forma transparente: `db migrar`
 aplica las migraciones del núcleo **y después** las tuyas, y el catálogo y las
 cargas se suman. Trabajas siempre sobre este repositorio, con lo tuyo colgando
 de `propio/`; no mantienes dos copias del framework.
+
+**El núcleo no crea ninguna tabla de negocio.** Una instalación limpia tiene
+las de sistema (`_ejecuciones`, `_rechazos`, `_decisiones`, `_documentos`…) y
+nada más: ni tickets, ni ideas, ni siquiera `persona`, `cliente` y `proyecto`,
+que estuvieron aquí hasta el hito 26. Eran un modelo de consultoría —quién
+hace el trabajo, para quién, en el marco de qué— y venía de serie con el
+framework: quien quisiera usar esto para su bodega o su gimnasio heredaba un
+vocabulario que no es el suyo. ClaudETL opina sobre **cómo** se declaran, se
+cargan y se rastrean las entidades, no sobre **cuáles** son. Hay una prueba que
+falla si alguna vez vuelve a colarse una tabla de negocio en el núcleo.
+
+Las dimensiones compartidas siguen existiendo, pero son tuyas y viven en
+`propio/`: en esta instalación son `persona`, `cliente` y `proyecto`, y la
+skill `crear-proceso` mira `propio/catalogo/` para saber a qué debería
+engancharse una tabla nueva.
 
 Dos reglas:
 
@@ -118,12 +141,101 @@ carga real no pueden colarse en un commit del framework porque no están en su
 negocio y se movió a la capa propia; es intencionado y no rompe nada, porque
 `_migraciones` indexa por nombre de fichero.
 
+## El dominio de ejemplo
+
+`ejemplos/` es una librería inventada —`demo_cliente`, `demo_libro`,
+`demo_venta`— con datos dummy sembrados en su propia migración. Existe para dos
+cosas: que la batería de pruebas tenga sujeto sin depender de ningún proceso
+real de nadie, y que quien clone el repositorio pueda probar el framework
+entero sin definir nada.
+
+```bash
+python -m motor.cli db migrar --con-ejemplos
+python -m motor.cli registro listar demo_venta
+python -m motor.cli etl ejecutar demo_ventas
+```
+
+La carga `demo_ventas` ejercita de una vez lo que cuesta más de explicar:
+tabla hall con `transformacion_sql` que resuelve los nombres del fichero
+contra las dimensiones, `campos_singularidad` para que recargar el mes lo
+sustituya en vez de duplicarlo, un `stop`, una `alarma` que salta a propósito
+con un comprador que no está de alta, y una salida xlsx.
+
+Tres decisiones que conviene entender antes de tocarlo:
+
+- **Se instalan solo si se piden.** Datos dummy que nadie pidió son datos
+  dummy que alguien acabará confundiendo con reales.
+- **Dimensiones propias, nunca las del núcleo.** Los ejemplos no insertan en
+  `cliente` ni en `persona`: una vez mezclados los dummies con clientes de
+  verdad, no hay quien los separe. Y el dominio es deliberadamente lejano —una
+  librería, no una consultoría— para que un dato inventado no se parezca a uno
+  real.
+- **Son invisibles por defecto.** Las fichas llevan `"ejemplo": true`, y quien
+  recorre el catálogo las ignora salvo que las pida: `proceso analizar` no las
+  propone como clave foránea, `etl definir` no sugiere sus campos y
+  `db diagrama` no las dibuja (`--con-ejemplos` sí). Sin esto, un dominio dummy
+  metido en el catálogo produce respuestas falsas sobre datos reales.
+
+## CRUD genérico: `registro`
+
+Un proceso de negocio (algo que tecleas: gastos, ideas, tareas) necesita altas,
+bajas y modificaciones. Eso fueron durante un tiempo `motor/tickets.py` y
+`motor/ideas.py`: el mismo código dos veces con los nombres cambiados. El
+problema no era la repetición, era que **obligaba a que todo proceso fuese
+público**, porque para dar de alta uno nuevo había que tocar `motor/` y
+`motor/cli.py`, que son núcleo, y entonces venía de serie en la instalación de
+cualquier tercero. Los dos módulos ya no existen.
+
+`motor/registros.py` lo resuelve: la entidad no está en el código, se lee de su
+ficha de catálogo — que puede vivir igual de bien en `catalogo/` que en
+`propio/catalogo/`. Un proceso privado es una migración y una ficha, las dos en
+`propio/`, y ya funciona.
+
+```bash
+python -m motor.cli registro campos tarea
+python -m motor.cli registro crear tarea --set persona=Nacho --set "texto=Pagar las nóminas" --set fecha_limite=2026-08-31
+python -m motor.cli registro listar tarea --filtro estado=pendiente --filtro "fecha_limite<=2026-08-15"
+python -m motor.cli registro editar tarea <id> --set estado=hecha --set horas=1.5
+python -m motor.cli registro borrar tarea <id>
+```
+
+Qué saca de la ficha:
+
+- **`campos`** — qué se puede escribir. Los `sistema` (`id`, `created_at`,
+  `updated_at`, `ejecucion_id`) se rechazan si los pasas a mano, y no salen en
+  el listado.
+- **`tipo`** — a qué convertir lo que llega del CLI, que siempre es texto.
+  `horas=1,5` y `horas=1.5` valen los dos; un valor vacío deja el campo a nulo.
+- **`relaciones`** — qué campos son referencias. `--set persona=Nacho` resuelve
+  contra la tabla destino por su `nombre` (sin distinguir mayúsculas) y el id
+  en crudo también vale. En el listado se muestra el nombre, no el id, y se
+  puede filtrar por él. Si la entidad destino no se identifica por `nombre`,
+  su ficha lo declara con **`etiqueta`** (`demo_libro` usa `titulo`): asumir
+  `nombre` siempre obligaría a escribir uuids justo en lo que peor se recuerda.
+- **`validacion.lista_valores`** — falla con un mensaje legible antes de que
+  salte el `CHECK`.
+
+Lo que **no** comprueba, a propósito, es la obligatoriedad: una columna puede
+ser `NOT NULL` y tener `DEFAULT` (`tarea.fecha`, `tarea.estado`), y desde la
+ficha eso no se distingue de una que hay que rellenar sí o sí. La autoridad es
+la base. Duplicar la regla solo crearía dos verdades que se separan con el
+tiempo.
+
+La trazabilidad es la misma que la del CRUD escrito a mano: el alta sella su
+`ejecucion_id` en la fila, las ediciones se encadenan a esa principal sin
+tocarlo, los invariantes del catálogo se comprueban en cada escritura y
+`--documento` archiva el fichero del que salen los datos.
+
+`ticket` e `idea` tuvieron subcomandos propios (`ticket crear`, `idea listar`)
+y se retiraron al sacarlas del núcleo: ahora son entidades de la capa propia y
+se operan con `registro`, como cualquier otra.
+
 ## Uso
 
 ```bash
 pip install -r requirements.txt
 
-python -m motor.cli db migrar
+python -m motor.cli db migrar [--con-ejemplos]
 python -m motor.cli db consultar "select * from cliente"
 python -m motor.cli db uso [--minimo 3]
 
@@ -134,22 +246,19 @@ python -m motor.cli etl dry-run <carga>
 python -m motor.cli etl ejecutar <carga> [--forzar] [--parametro nombre=valor ...]
 python -m motor.cli etl estado
 
-python -m motor.cli ticket crear --cliente <nombre> --persona <nombre> --concepto <viajes|hoteles|gasolina|otros> --importe <n> --fecha <YYYY-MM-DD> [--descripcion <texto>]
-python -m motor.cli ticket listar [--cliente] [--persona] [--concepto] [--desde YYYY-MM-DD] [--hasta YYYY-MM-DD]
-python -m motor.cli ticket editar <id> [--concepto] [--descripcion] [--importe] [--fecha]
-python -m motor.cli ticket borrar <id>
-
-python -m motor.cli idea crear --persona <nombre> --texto <texto> [--cliente <nombre>] [--estado <pendiente|en_curso|descartada|hecha>] [--fecha YYYY-MM-DD]
-python -m motor.cli idea listar [--persona] [--cliente] [--estado] [--desde YYYY-MM-DD] [--hasta YYYY-MM-DD]
-python -m motor.cli idea editar <id> [--texto] [--cliente] [--estado] [--fecha]
-python -m motor.cli idea borrar <id>
+python -m motor.cli registro campos <entidad>
+python -m motor.cli registro crear <entidad> --set campo=valor [--set ...] [--documento <ruta>]
+python -m motor.cli registro listar <entidad> [--filtro campo=valor ...]
+python -m motor.cli registro editar <entidad> <id> --set campo=valor [--set ...]
+python -m motor.cli registro borrar <entidad> <id>
 ```
 
-`cliente`/`persona` se gestionan por ahora con `db consultar` (no tienen
-CRUD propio todavía). En `idea`, `--fecha` es opcional al crear (por defecto
-hoy) y `--cliente` también (una idea no tiene por qué estar ligada a un
-cliente concreto). `ticket crear` e `idea crear` aceptan `--documento <ruta>`
-para archivar en el mismo alta el justificante del que salen los datos.
+`registro` es el **CRUD genérico** y la única forma de dar altas por CLI:
+sirve para cualquier entidad declarada en el catálogo, incluidas `cliente` y
+`persona`, sin escribir una línea en el framework. Ver
+[CRUD genérico](#crud-genérico-registro). `registro crear` acepta
+`--documento <ruta>` para archivar en el mismo alta el justificante del que
+salen los datos.
 
 ```bash
 python -m motor.cli documento adjuntar <tabla> <id> <ruta> [--tag <etiqueta>]
@@ -797,3 +906,61 @@ los ficheros exportados desde otra herramienta.
   `012_validaciones.sql`, del núcleo, hacía `ALTER TABLE` sobre una tabla de
   negocio, así que la instalación limpia de un tercero se habría roto; ahora
   una prueba falla si el núcleo vuelve a referenciar una tabla propia.
+- Hito 24: CRUD genérico dirigido por el catálogo (`motor/registros.py`,
+  comandos `registro campos/crear/listar/editar/borrar`). Cierra el agujero
+  que dejaba abierto el hito 23: las cargas ya podían ser privadas, pero un
+  **proceso** no, porque su CRUD había que escribirlo en `motor/` y
+  `motor/cli.py` —los dos del núcleo—, así que todo proceso acababa siendo
+  público y venía de serie en la instalación de cualquier tercero. Ahora la
+  entidad no está en el código: sale de su ficha de catálogo, que puede vivir
+  en `propio/catalogo/`. De la ficha salen los campos escribibles (los
+  `sistema` se rechazan), el tipo al que convertir el texto del CLI, las
+  relaciones para resolver una FK por nombre (`--set persona=Nacho`) y
+  `lista_valores` para fallar legible antes que con el `CHECK`. La
+  obligatoriedad **no** se comprueba a propósito: una columna puede ser
+  `NOT NULL` con `DEFAULT` y desde la ficha no se distingue de una que hay que
+  rellenar; la autoridad es la base, y duplicar la regla crearía dos verdades
+  que se separan. Trazabilidad idéntica a la del CRUD escrito a mano. Un
+  proceso privado pasa a ser una migración y una ficha, las dos en `propio/`.
+- Hito 25: el núcleo se queda sin procesos de negocio, y aparece la capa de
+  ejemplos (`ejemplos/`, `motor/rutas.py`, `db migrar --con-ejemplos`).
+  `ticket`, `idea` y `movimiento_bancario` se van a `propio/` con sus 6
+  migraciones, 3 fichas y 1 carga; `motor/tickets.py`, `motor/ideas.py` y sus
+  subcomandos desaparecen —lo que hacían lo hace `registro`—. Una instalación
+  limpia crea ahora `persona`, `cliente` y `proyecto` y nada más, y hay una
+  prueba que falla si vuelve a colarse una tabla de negocio en el núcleo. Al
+  mover las tablas salieron dos acoplamientos que la prueba del hito 23 no
+  veía porque solo miraba las tablas que ya estaban en `propio/`:
+  `012_validaciones.sql` y `013_trazabilidad_ejecuciones.sql`, las dos del
+  núcleo, hacían `ALTER TABLE` sobre movimiento_bancario, ticket e idea;
+  ahora cada tabla declara su `ejecucion_id` en la migración que la crea. La
+  batería de pruebas necesitaba un sujeto que no fuese negocio de nadie, y de
+  ahí `ejemplos/`: una librería inventada con datos dummy sembrados en su
+  propia migración, dimensiones propias (nunca insertan en `cliente` ni
+  `persona`) y una carga que ejercita hall, singularidad, stop, alarma y
+  salida. Se instalan solo si se piden y son invisibles por defecto: las
+  fichas llevan `"ejemplo": true` y `proceso analizar`, `etl definir` y
+  `db diagrama` las ignoran, porque un dominio dummy en el catálogo produce
+  respuestas falsas sobre datos reales. De paso, dos límites del CRUD
+  genérico que solo se ven con entidades que no son las de siempre: asumía
+  que toda entidad se identifica por una columna `nombre` (ahora la ficha lo
+  declara con `etiqueta`, y `demo_libro` usa `titulo`) y que toda tabla tiene
+  `ejecucion_id` (las tres del núcleo no lo tienen y no se les puede añadir,
+  al ser destino de claves ajenas: se detecta y se omite).
+- Hito 26: el framework deja de traer entidades. `persona`, `cliente` y
+  `proyecto` salen de `001_nucleo.sql` y pasan a `propio/migraciones/000_dimensiones.sql`,
+  con sus tres fichas; el núcleo se queda solo con las tablas de sistema y
+  `catalogo/` vacío. Eran un modelo de consultoría —quién hace el trabajo,
+  para quién, en el marco de qué— y venían de serie: quien quisiera usar esto
+  para una bodega o un gimnasio heredaba un vocabulario que no es el suyo.
+  ClaudETL opina sobre cómo se declaran, se cargan y se rastrean las
+  entidades, no sobre cuáles son. Se crean con `IF NOT EXISTS` porque en los
+  almacenes ya migrados las creó `001_nucleo.sql` y `_migraciones` indexa por
+  nombre de fichero, así que la migración nueva corre igual; comprobado que la
+  instalación limpia y la incremental acaban con las mismas columnas en el
+  mismo orden, y que no se pierde un dato. La regla de `crear-proceso` que
+  obligaba a referenciar persona/cliente/proyecto pasa a hablar de las
+  dimensiones que haya en `propio/catalogo/`, sin nombres fijos. La prueba que
+  vigila que el núcleo no toque tablas propias deducía los nombres del nombre
+  del fichero de migración, lo que solo acierta cuando coinciden; ahora los
+  saca de las fichas, que es donde están de verdad.

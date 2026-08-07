@@ -21,8 +21,8 @@ class PruebaDescripcionCarga(PruebaConAlmacen):
             "formato": "csv",
             "delimitador": ";",
             "fila_cabecera": 1,
-            "tabla_destino": "ticket",
-            "mapping": [{"destino": "concepto", "operaciones": [{"tipo": "const", "valor": "otros"}]}],
+            "tabla_destino": "demo_venta",
+            "mapping": [{"destino": "canal", "operaciones": [{"tipo": "const", "valor": "tienda"}]}],
         }
         definicion.update(extra)
         definicion.setdefault("carpeta", str(self.entrada_dir / "prueba"))

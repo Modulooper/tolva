@@ -10,8 +10,10 @@ principal para modelar datos, cargar ficheros y llevar el día a día.
 Si `datos/almacen.duckdb` no existe todavía (comprueba con un `ls`/`Test-Path`
 antes de asumir nada), esto es una instalación nueva. Sigue "Instalación" en
 [README.md](README.md) sin preguntar paso a paso (clonar ya hecho, venv, pip
-install, `db migrar`), y verifica al final con `ticket listar` / `idea
-listar`.
+install, `db migrar`), y verifica al final con `db migrar --con-ejemplos` y
+`registro listar demo_venta`: una instalación limpia del núcleo no crea
+ninguna tabla de negocio —solo las de sistema—, así que lo único que se puede
+listar de entrada es el dominio de ejemplo.
 
 Justo después de dejarlo instalado y verificado — o al arrancar en un repo
 que ya estaba instalado pero es la primera vez que hablas con este usuario —
@@ -59,6 +61,10 @@ todavía no sabe qué puede pedir:
   la ficha: se sigue sabiendo de qué fichero venía cada dato.
 - **Todo lo decidido queda escrito** en `_decisiones` con su porqué, para que
   dentro de seis meses se sepa por qué `mes` es texto.
+- **Lo suyo va en `propio/`, que no sale del repositorio público**, y hay un
+  dominio de ejemplo (una librería inventada, `db migrar --con-ejemplos`) para
+  trastear sin ensuciar nada. Los ejemplos son invisibles: no salen en el
+  diagrama ni cuentan como evidencia al diseñar nada.
 
 Cierra invitándole a empezar por lo más tonto que tenga a mano: un fichero
 que abre cada mes, o una lista que lleva en un Excel suelto. En una
@@ -77,12 +83,43 @@ en vez de listarlos todos en el chat.
   `definir-carga`** (`.claude/skills/definir-carga/SKILL.md`): perfilado del
   fichero de muestra, mapping propuesto, aprobación, y solo entonces
   `dry-run` antes de `ejecutar`.
+- **Un proceso nuevo va a la capa propia, nunca al núcleo.** Migración en
+  `propio/migraciones/` y ficha en `propio/catalogo/`. El núcleo es el
+  framework y **no crea ninguna tabla de negocio**: una instalación limpia
+  solo tiene las de sistema. Ni siquiera `persona`, `cliente` y `proyecto`,
+  que estuvieron ahí hasta el hito 26 y eran un modelo de consultoría que
+  heredaba cualquiera. Hay una prueba
+  (`test_el_nucleo_no_crea_ninguna_tabla_de_negocio`) que falla si se cuela
+  algo. Si crees que algo debe ir al núcleo, pregúntalo antes: casi siempre es
+  que no.
+- **Las dimensiones compartidas de esta instalación** (`persona`, `cliente`,
+  `proyecto`) están en `propio/`, no en el framework. Siguen siendo aquello a
+  lo que se engancha una tabla nueva, pero no des por hecho que existen al
+  hablar del framework en abstracto: en la instalación de otro pueden ser
+  otras o no haber ninguna.
+- **Las entidades de ejemplo (`ejemplos/`) son invisibles en el chat.** Son una
+  librería inventada con datos dummy (`demo_cliente`, `demo_libro`,
+  `demo_venta`) que existe para las pruebas y para que un tercero pueda
+  probar el framework. No las cuentes en resúmenes ni informes, no las uses
+  como evidencia de nada, no las propongas al diseñar un proceso y no las
+  incluyas en visualizaciones salvo que el usuario las pida por su nombre.
+  El código ya las oculta por defecto (`catalogo.listar_entidades`); esta
+  regla es para lo que decides tú, que el código no puede filtrar.
+- **No escribas un módulo CRUD nuevo en `motor/`.** El CRUD lo da
+  `motor/registros.py` leyendo la ficha de catálogo: `registro
+  crear/listar/editar/borrar <entidad>`. Hubo un `motor/tickets.py` y un
+  `motor/ideas.py` y se borraron en el hito 25 justamente por esto: un módulo
+  por entidad mete el proceso en el repo público. Lo que sí hay que cuidar es
+  la ficha, porque es de donde sale todo: las `relaciones` permiten
+  `--set persona=Nacho`, `etiqueta` dice con qué columna se nombra la entidad
+  cuando no es `nombre` (`demo_libro` usa `titulo`), y
+  `validacion.lista_valores` da un error legible en vez de un `CHECK` violado.
 - Toda migración nueva sigue el patrón de `/migraciones/`: `CREATE TABLE`/
   `CREATE VIEW` + un `INSERT INTO _decisiones` en el mismo fichero explicando
   el porqué de las decisiones no obvias (ver cualquier migración existente
   como plantilla).
-- Toda tabla nueva necesita su entrada en `/catalogo/<tabla>.json` antes de
-  poder cargarse o referenciarse desde otra carga.
+- Toda tabla nueva necesita su ficha (`propio/catalogo/<tabla>.json`) antes de
+  poder cargarse, referenciarse desde otra carga u operarse con `registro`.
 - DuckDB no soporta `ALTER TABLE ... DROP/ADD CONSTRAINT`: para cambiar un
   `CHECK` hay que recrear la tabla dentro de la migración (ver
   `006_ticket_concepto_otros.sql` como ejemplo). Tampoco admite `ADD COLUMN`

@@ -17,14 +17,12 @@ CREATE TABLE _validaciones_disparadas (
     fecha TIMESTAMP NOT NULL DEFAULT current_timestamp
 );
 
--- ejecucion_id permite borrar/inspeccionar exactamente lo que metió una
--- ejecución concreta, sin depender de los campos de negocio.
---
--- Solo se toca aquí lo que vive en el núcleo. Una tabla de la capa propia se
--- crea con su ejecucion_id en su propia migración: el framework no puede
--- alterar tablas que no sabe si existen, y las migraciones propias se aplican
--- después de las del núcleo (ver motor/rutas.py).
-ALTER TABLE movimiento_bancario ADD COLUMN ejecucion_id BIGINT;
+-- Aquí había un `ALTER TABLE movimiento_bancario ADD COLUMN ejecucion_id`.
+-- Se retiró al mover esa tabla a la capa propia (hito 25): el núcleo no puede
+-- alterar tablas que no sabe si existen, y en una instalación limpia de un
+-- tercero esta migración reventaba. La columna la declara ahora la migración
+-- que crea la tabla. Ver motor/rutas.py y la prueba
+-- `test_el_nucleo_no_referencia_tablas_de_la_capa_propia`.
 
 INSERT INTO _decisiones (tipo, descripcion, evidencia, migracion_asociada) VALUES (
     'diseño_esquema',

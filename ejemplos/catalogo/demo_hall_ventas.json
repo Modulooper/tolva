@@ -1,0 +1,17 @@
+{
+  "entidad": "demo_hall_ventas",
+  "tabla": "demo_hall_ventas",
+  "descripcion": "EJEMPLO (datos dummy). Tabla hall de la carga demo_ventas: la de trabajo, foto completa, que se vacía y se recarga en cada ejecución. Aquí el comprador y el título llegan por su nombre tal como los da el fichero; la transformacion_sql de la carga los cambia por sus ids antes de promover a demo_venta.",
+  "ejemplo": true,
+  "campos": {
+    "fecha": {"tipo": "date", "obligatorio": false, "descripcion": "Día de la venta.", "sinonimos": ["Fecha"]},
+    "cliente": {"tipo": "varchar", "obligatorio": false, "descripcion": "Nombre del comprador, sin resolver todavía.", "sinonimos": ["Cliente", "Comprador"]},
+    "titulo": {"tipo": "varchar", "obligatorio": false, "descripcion": "Título vendido, sin resolver todavía.", "sinonimos": ["Titulo", "Título", "Libro"]},
+    "unidades": {"tipo": "integer", "obligatorio": false, "descripcion": "Ejemplares vendidos.", "sinonimos": ["Unidades", "Cantidad"]},
+    "importe": {"tipo": "double", "obligatorio": false, "descripcion": "Total cobrado.", "sinonimos": ["Importe", "Total"]},
+    "canal": {"tipo": "varchar", "obligatorio": false, "descripcion": "Por dónde entró la venta.", "sinonimos": ["Canal"]},
+    "origen_carga": {"tipo": "varchar", "obligatorio": false, "sistema": true, "descripcion": "Carga que trajo la fila.", "sinonimos": []},
+    "extra_fields": {"tipo": "varchar", "obligatorio": false, "sistema": true, "descripcion": "Columnas del fichero no declaradas en el mapping.", "sinonimos": []}
+  },
+  "relaciones": []
+}

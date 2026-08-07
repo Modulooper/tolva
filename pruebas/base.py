@@ -56,8 +56,14 @@ class PruebaConAlmacen(unittest.TestCase):
         # Migrar DESPUÉS de redirigir la capa propia: si no, la suite aplicaría
         # las migraciones privadas de quien tenga el repo, y dejaría de probar
         # el framework para probar su instalación concreta.
+        #
+        # Con el dominio de ejemplo (`ejemplos/`): la suite necesita tablas
+        # sobre las que probar, y antes usaba `ticket` e `idea`. Eso ataba el
+        # framework a dos procesos de negocio concretos y es lo que impedía
+        # sacarlos del núcleo. El material de prueba es ahora la librería
+        # inventada, que no es de nadie.
         self.db_path = self.tmp / "almacen.duckdb"
-        self.migraciones_aplicadas = db.migrar(self.db_path)
+        self.migraciones_aplicadas = db.migrar(self.db_path, con_ejemplos=True)
 
         self.con = db.conectar(self.db_path)
 

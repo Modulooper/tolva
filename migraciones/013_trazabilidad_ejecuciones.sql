@@ -44,8 +44,11 @@ UPDATE _ejecuciones SET ejecucion_id_principal = id;
 -- Nullable a propósito: las filas anteriores a esta migración no tienen
 -- ejecución que las creara y no se les inventa una (mismo criterio que la
 -- migración 003 con "usuario" = 'desconocido').
-ALTER TABLE ticket ADD COLUMN ejecucion_id BIGINT;
-ALTER TABLE idea   ADD COLUMN ejecucion_id BIGINT;
+--
+-- Aquí había un `ALTER TABLE` sobre ticket e idea. Se retiró al sacarlas del
+-- núcleo (hito 25): cada una declara su ejecucion_id en la migración que la
+-- crea, que es la única forma de que el framework no dependa de tablas de
+-- negocio que en otra instalación no existen.
 
 -- _rechazos vuelve tal y como estaba en 001_nucleo.sql, FK incluida.
 CREATE TABLE _rechazos (

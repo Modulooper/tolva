@@ -1,0 +1,15 @@
+{
+  "entidad": "demo_cliente",
+  "tabla": "demo_cliente",
+  "descripcion": "EJEMPLO (datos dummy). Quien compra libros en la librería de ejemplo: colegios, ateneos, bibliotecas. Es la dimensión propia de los ejemplos, separada de 'cliente' a propósito para que un dato inventado no pueda confundirse con uno real.",
+  "ejemplo": true,
+  "campos": {
+    "id": {"tipo": "uuid", "obligatorio": true, "sistema": true, "descripcion": "Identificador interno.", "sinonimos": []},
+    "nombre": {"tipo": "varchar", "obligatorio": true, "descripcion": "Nombre del comprador.", "sinonimos": ["Nombre", "Comprador"]},
+    "ciudad": {"tipo": "varchar", "obligatorio": false, "descripcion": "Ciudad donde está.", "sinonimos": ["Ciudad"]},
+    "activo": {"tipo": "boolean", "obligatorio": true, "descripcion": "Si sigue comprando.", "sinonimos": []},
+    "created_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de alta del registro.", "sinonimos": []},
+    "updated_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de última modificación.", "sinonimos": []}
+  },
+  "relaciones": []
+}

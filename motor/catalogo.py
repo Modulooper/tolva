@@ -37,6 +37,16 @@ SCHEMA_ENTIDAD = {
                 "additionalProperties": False,
             },
         },
+        # Con qué columna se nombra a una de estas en lenguaje humano, para
+        # poder referirse a ella sin el uuid (`--set demo_libro="El jardín de
+        # arena"`). Por defecto `nombre` si la entidad lo tiene; se declara
+        # cuando la etiqueta es otra cosa, como `titulo`.
+        "etiqueta": {"type": "string", "minLength": 1},
+        # Marca las entidades del dominio de ejemplo (`ejemplos/`). Quien
+        # recorre el catálogo las ignora por defecto: sin esto, los datos
+        # dummy contaminarían el análisis de solapamiento y las sugerencias
+        # de campo destino al perfilar un fichero real.
+        "ejemplo": {"type": "boolean"},
         "historial": historial.SCHEMA_HISTORIAL,
         "relaciones": {
             "type": "array",
@@ -62,8 +72,30 @@ SCHEMA_ENTIDAD = {
 }
 
 
-def listar_entidades() -> list:
-    return rutas.nombres("catalogo", "*.json", CATALOGO_DIR)
+def listar_entidades(con_ejemplos: bool = False) -> list:
+    """Entidades del catálogo, **sin las de ejemplo** salvo que se pidan.
+
+    El defecto es ocultarlas a propósito. Todo lo que recorre el catálogo
+    entero saca conclusiones de lo que encuentra —candidatos a clave foránea,
+    campos destino sugeridos, el diagrama del modelo— y un dominio dummy
+    metido ahí produce respuestas falsas sobre datos reales. Solo pide
+    `con_ejemplos=True` la maquinaria que necesita resolver una entidad
+    concreta por su tabla (`cargar_por_tabla`), porque ahí no se está
+    infiriendo nada: se está buscando algo que ya se sabe que existe.
+    """
+    nombres = rutas.nombres("catalogo", "*.json", CATALOGO_DIR)
+    if con_ejemplos:
+        return nombres
+    return [n for n in nombres if not es_ejemplo(n)]
+
+
+def es_ejemplo(nombre: str) -> bool:
+    """Si la entidad pertenece al dominio de ejemplo. Una ficha ilegible o
+    inválida no se considera de ejemplo: mejor que se vea y falle donde toca."""
+    try:
+        return bool(cargar_entidad(nombre).get("ejemplo", False))
+    except (FileNotFoundError, json.JSONDecodeError, jsonschema.ValidationError):
+        return False
 
 
 def cargar_entidad(nombre: str) -> dict:
@@ -76,8 +108,14 @@ def cargar_entidad(nombre: str) -> dict:
 
 
 def cargar_por_tabla(tabla: str):
-    """Busca la entidad del catálogo cuya tabla coincide. None si no existe."""
-    for nombre in listar_entidades():
+    """Busca la entidad del catálogo cuya tabla coincide. None si no existe.
+
+    Mira también las de ejemplo: aquí no se infiere nada, se resuelve una
+    tabla concreta que alguien ya ha nombrado (la destino de una carga, por
+    ejemplo), y ocultarla solo produciría un 'no tiene entrada en el
+    catálogo' incomprensible.
+    """
+    for nombre in listar_entidades(con_ejemplos=True):
         entidad = cargar_entidad(nombre)
         if entidad.get("tabla") == tabla:
             return entidad

@@ -20,8 +20,10 @@ también valores de muestra de ahí en vez de preguntarlos uno a uno).
 
 ## 2. Lee el catálogo completo, no solo el automatch
 
-Lee **todos** los ficheros de `/catalogo/*.json`, no te fíes solo de las
-coincidencias automáticas. Los sinónimos registrados no cubren todo.
+Lee **todos** los ficheros de `/catalogo/*.json` y `propio/catalogo/*.json`,
+no te fíes solo de las coincidencias automáticas. Los sinónimos registrados no
+cubren todo. Deja fuera `ejemplos/catalogo/`: es un dominio inventado y
+solaparse con él no significa nada.
 
 ## 3. Comprueba solapamiento con código, campo a campo
 
@@ -59,12 +61,18 @@ Interpreta los resultados así:
 - Cardinalidad alta, sin candidatos_fk → probablemente sí es una entidad
   nueva legítima.
 
-## 4. Núcleo: referencia o justifica
+## 4. Dimensiones compartidas: referencia o justifica
 
-Toda tabla nueva debe referenciar `persona`, `cliente` o `proyecto` cuando
-corresponda (vía FK real, nunca un campo de texto libre con el nombre). Si
-no referencia ninguna, explica por qué en la propuesta — el mismo patrón que
-`movimiento_bancario` (ver su entrada en `_decisiones`).
+El framework **no trae ninguna entidad**: desde el hito 26, una instalación
+limpia solo crea tablas de sistema. Las dimensiones compartidas —eso a lo que
+se engancha todo lo demás— viven en la capa propia y cada instalación tiene
+las suyas. Mira `propio/catalogo/` para saber cuáles son antes de proponer
+nada; en esta son `persona`, `cliente` y `proyecto`.
+
+Toda tabla nueva debe referenciar las que le correspondan vía FK real, nunca
+un campo de texto libre con el nombre. Si no referencia ninguna, explica por
+qué en la propuesta — el mismo patrón que `movimiento_bancario` (ver su
+entrada en `_decisiones`).
 
 ## 4a. Para qué existe este proceso
 
@@ -92,9 +100,10 @@ Toda tabla con CRUD por CLI lleva `ejecucion_id BIGINT` (nullable, marcado
 `"sistema": true` en el catálogo): guarda la ejecución que **creó** la fila,
 y las ediciones posteriores no lo tocan — se encadenan a ella en
 `_ejecuciones`. Eso es lo que permite colgar documentos del registro
-(`documento adjuntar`) sin duplicar nada, así que inclúyelo en el esquema
-propuesto y hazlo escribir por `ejecuciones.envolver` en el `crear`, igual
-que `motor/tickets.py`.
+(`documento adjuntar`) sin duplicar nada. Inclúyelo en el esquema propuesto y
+declárelo la propia migración: `motor/registros.py` lo sella solo al crear. Si
+la tabla no lo tiene, el CRUD sigue funcionando pero se pierde poder ir de la
+fila a su ejecución.
 
 Si a la entidad se le van a adjuntar justificantes (gastos, facturas,
 contratos), no declares `historial` con recorte: el valor por defecto
@@ -107,9 +116,10 @@ Antes de escribir nada, muestra en el chat:
 - Nombre de tabla y columnas (tipo, obligatoriedad, FKs, `CHECK` si aplica).
 - Por cada decisión no obvia, la evidencia de código que la respalda (el
   resultado de `proceso analizar`, no "me parece que...").
-- El siguiente número de migración libre (revisa `/migraciones/`, usa el
-  siguiente entero con cero a la izquierda si aplica, `NNN_nombre.sql`).
-- Borrador de la entrada de catálogo (`/catalogo/<tabla>.json`, mismo
+- El siguiente número de migración libre en `propio/migraciones/` (la
+  numeración de la capa propia es independiente de la del núcleo, porque
+  `_migraciones` indexa por nombre de fichero), `NNN_nombre.sql`.
+- Borrador de la entrada de catálogo (`propio/catalogo/<tabla>.json`, mismo
   formato que las existentes: campos, tipos, sinónimos, relaciones).
 - Borrador del texto para `_decisiones` (tipo, descripción, evidencia,
   migración asociada).
@@ -118,14 +128,20 @@ Pide confirmación o cambios. No sigas sin aprobación explícita.
 
 ## 6. Escribe, aplica y valida — solo tras la aprobación
 
-1. Escribe el fichero de migración en `/migraciones/NNN_<nombre>.sql`: el
-   `CREATE TABLE` y el `INSERT INTO _decisiones` en el mismo fichero (mismo
-   patrón que las migraciones anteriores).
-2. Escribe `/catalogo/<tabla>.json`.
+1. Escribe el fichero de migración en `propio/migraciones/NNN_<nombre>.sql`:
+   el `CREATE TABLE` y el `INSERT INTO _decisiones` en el mismo fichero
+   (mismo patrón que las migraciones anteriores). Incluye `ejecucion_id
+   BIGINT` en la propia tabla: el núcleo no puede alterarla después.
+2. Escribe `propio/catalogo/<tabla>.json`. Cuida las `relaciones`, los
+   `validacion.lista_valores` y, si la entidad no se identifica por una
+   columna `nombre`, la `etiqueta` que diga cuál es: no son adorno, son lo que
+   hace funcionar el CRUD genérico.
 3. `python -m motor.cli db migrar` y comprueba que se aplica sin error.
-4. Si el usuario quiere también CRUD por CLI para la tabla nueva (como
-   `ticket crear/listar/editar/borrar`), constrúyelo como paso siguiente,
-   no lo des por incluido automáticamente — pregúntaselo.
+4. **El CRUD ya está**: no escribas un módulo en `motor/`. Compruébalo con
+   `registro campos <entidad>` y da de alta el primer registro real con
+   `registro crear <entidad> --set campo=valor ...`.
+5. Añade una vista `<tabla>_consumo` en la misma migración si los datos van a
+   salir a Excel/Power BI, con el patrón de `demo_venta_consumo`.
 
 ## Lo que esta skill NO hace
 

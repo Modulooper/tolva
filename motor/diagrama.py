@@ -24,17 +24,21 @@ TIPOS_MERMAID = {
 TABLAS_SISTEMA_PREFIJO = "_"
 
 
-def _entidades():
+def _entidades(con_ejemplos: bool = False):
     from . import catalogo
 
-    return [catalogo.cargar_entidad(nombre) for nombre in catalogo.listar_entidades()]
+    return [
+        catalogo.cargar_entidad(nombre)
+        for nombre in catalogo.listar_entidades(con_ejemplos=con_ejemplos)
+    ]
 
 
-def mermaid(completo: bool = False) -> str:
+def mermaid(completo: bool = False, con_ejemplos: bool = False) -> str:
     """Diagrama entidad-relación. Sin `completo`, oculta los campos marcados
     como `sistema` (created_at, updated_at, ejecucion_id): están en todas las
-    tablas y tapan lo que se quiere ver."""
-    entidades = _entidades()
+    tablas y tapan lo que se quiere ver. Sin `con_ejemplos`, deja fuera el
+    dominio de ejemplo: el diagrama es del modelo, no del material de prueba."""
+    entidades = _entidades(con_ejemplos)
     lineas = ["erDiagram"]
     relaciones = []
 
@@ -65,26 +69,31 @@ def mermaid(completo: bool = False) -> str:
     return "\n".join(lineas + relaciones)
 
 
-def resumen() -> list:
+def resumen(con_ejemplos: bool = False) -> list:
     """(tabla, descripción, nº de campos) de cada entidad del catálogo."""
     return [
         (e["tabla"], e.get("descripcion", ""), len(e["campos"]))
-        for e in _entidades()
+        for e in _entidades(con_ejemplos)
     ]
 
 
-def cargas_declaradas() -> list:
+def cargas_declaradas(con_ejemplos: bool = False) -> list:
     """(carga, tabla destino, para qué se hace) de cada definición de carga.
 
     Va junto al diagrama porque el modelo no se entiende solo mirando tablas:
     la mitad de las filas entran por una carga, y saber de qué fichero vienen
     y para qué se cargan explica el esquema tanto como las relaciones.
     """
-    from . import cargas
+    from . import cargas, catalogo
 
     declaradas = []
     for ruta in cargas.listar_definiciones():
         definicion = cargas.cargar(str(ruta))
+        if not con_ejemplos:
+            # Una carga es de ejemplo si lo es la tabla en la que escribe.
+            destino = catalogo.cargar_por_tabla(definicion.get("tabla_destino", ""))
+            if destino and destino.get("ejemplo"):
+                continue
         declaradas.append(
             (
                 definicion["nombre"],
@@ -96,8 +105,16 @@ def cargas_declaradas() -> list:
 
 
 def desajustes(con) -> list:
-    """Dónde se han separado el catálogo y el almacén."""
-    entidades = _entidades()
+    """Dónde se han separado el catálogo y el almacén.
+
+    Aquí las entidades de ejemplo entran **siempre**, y no por capricho: si se
+    ocultasen y alguien hubiera migrado con `--con-ejemplos`, sus tablas
+    aparecerían como 'existe en el almacén y no tiene ficha de catálogo'. Se
+    miran las dos, y lo único que se calla es la queja simétrica —una ficha de
+    ejemplo sin tabla— porque esas migraciones son opt-in y no tenerlas
+    aplicadas es lo normal, no un desajuste.
+    """
+    entidades = _entidades(con_ejemplos=True)
     avisos = []
 
     tablas_reales = {
@@ -119,7 +136,8 @@ def desajustes(con) -> list:
     for entidad in entidades:
         tabla = entidad["tabla"]
         if tabla not in tablas_reales:
-            avisos.append(f"el catálogo describe '{tabla}', que no existe en el almacén")
+            if not entidad.get("ejemplo"):
+                avisos.append(f"el catálogo describe '{tabla}', que no existe en el almacén")
             continue
         columnas = {
             f[0]
@@ -136,8 +154,21 @@ def desajustes(con) -> list:
     return avisos
 
 
-def vistas_de_consumo(con) -> list:
-    return sorted(
+def vistas_de_consumo(con, con_ejemplos: bool = False) -> list:
+    """Las vistas del almacén. Las del dominio de ejemplo se ocultan igual que
+    sus tablas: se reconocen porque cuelgan del nombre de una entidad marcada
+    como `ejemplo` (`demo_venta` -> `demo_venta_consumo`)."""
+    from . import catalogo
+
+    todas = sorted(
         f[0]
         for f in con.execute("SELECT view_name FROM duckdb_views() WHERE internal = false").fetchall()
     )
+    if con_ejemplos:
+        return todas
+    de_ejemplo = tuple(
+        catalogo.cargar_entidad(n)["tabla"]
+        for n in catalogo.listar_entidades(con_ejemplos=True)
+        if catalogo.es_ejemplo(n)
+    )
+    return [v for v in todas if not v.startswith(de_ejemplo)] if de_ejemplo else todas

@@ -1,0 +1,44 @@
+{
+  "nombre": "demo_ventas",
+  "descripcion": "EJEMPLO (datos dummy). Export mensual de ventas que la librería de ejemplo saca de su TPV, para tener en el almacén lo vendido por título y comprador sin teclearlo a mano. Cada fila es una venta de un título a un comprador en un día concreto, por un canal. El TPV entrega el fichero de un mes entero y lo vuelve a emitir corregido cuando hay una devolución o un error de precio, así que un fichero nuevo debe SUSTITUIR el mes que trae y no acumularse encima: por eso la singularidad es la fecha, el comprador, el título y el canal. El fichero trae los nombres y no los ids, de ahí la tabla hall y el join contra las dimensiones. Desconfia si aparecen compradores o títulos que no están en el catálogo (se cargan con el id vacío) o importes a cero en canal feria.",
+  "carpeta": "ejemplos/entrada/demo_ventas",
+  "patron": "*.csv",
+  "formato": "csv",
+  "delimitador": ";",
+  "encoding": "utf-8",
+  "fila_cabecera": 1,
+  "tabla_hall": "demo_hall_ventas",
+  "tabla_destino": "demo_venta",
+  "mapping": [
+    {"origen": "Fecha", "destino": "fecha", "operaciones": [{"tipo": "date_format", "formatos": ["%d/%m/%Y"]}]},
+    {"origen": "Comprador", "destino": "cliente", "operaciones": [{"tipo": "trim"}]},
+    {"origen": "Titulo", "destino": "titulo", "operaciones": [{"tipo": "trim"}]},
+    {"origen": "Unidades", "destino": "unidades", "operaciones": [{"tipo": "cast", "tipo_destino": "integer"}]},
+    {"origen": "Importe", "destino": "importe", "operaciones": [{"tipo": "cast", "tipo_destino": "double", "formato_numerico": "es"}]},
+    {"origen": "Canal", "destino": "canal", "operaciones": [{"tipo": "trim"}]},
+    {"destino": "origen_carga", "operaciones": [{"tipo": "const", "valor": "demo_ventas"}]}
+  ],
+  "transformacion_sql": "SELECT h.fecha, c.id AS demo_cliente_id, l.id AS demo_libro_id, h.unidades, h.importe, h.canal, h.origen_carga FROM demo_hall_ventas h LEFT JOIN demo_cliente c ON lower(c.nombre) = lower(h.cliente) LEFT JOIN demo_libro l ON lower(l.titulo) = lower(h.titulo) WHERE h.unidades IS NOT NULL",
+  "campos_singularidad": ["fecha", "demo_cliente_id", "demo_libro_id", "canal"],
+  "validaciones": [
+    {
+      "nombre": "importe_negativo",
+      "tipo": "stop",
+      "mensaje": "Hay ventas con importe negativo. En un export de ventas eso es un error del TPV, no una devolución: las devoluciones llegan como fichero corregido del mes. Se corta antes de escribir.",
+      "sql": "SELECT fecha, importe FROM demo_venta WHERE importe < 0"
+    },
+    {
+      "nombre": "comprador_desconocido",
+      "tipo": "alarma",
+      "mensaje": "Hay ventas cuyo comprador no está en demo_cliente: se cargan igual, con el id vacío, pero conviene mirar si falta un alta o hay una errata en el nombre.",
+      "sql": "SELECT fecha, importe FROM demo_venta WHERE origen_carga = 'demo_ventas' AND demo_cliente_id IS NULL"
+    }
+  ],
+  "salidas": [
+    {
+      "nombre": "ventas_por_genero",
+      "fichero": "%Y%m%d_demo_ventas_por_genero.xlsx",
+      "sql": "SELECT l.genero, sum(v.unidades) AS unidades, round(sum(v.importe), 2) AS importe FROM demo_venta v JOIN demo_libro l ON l.id = v.demo_libro_id GROUP BY l.genero ORDER BY importe DESC"
+    }
+  ]
+}

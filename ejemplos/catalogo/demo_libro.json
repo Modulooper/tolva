@@ -1,0 +1,23 @@
+{
+  "entidad": "demo_libro",
+  "tabla": "demo_libro",
+  "descripcion": "EJEMPLO (datos dummy). Catálogo de títulos de la librería de ejemplo. Cada fila es un libro a la venta, con su precio de tarifa: lo que se cobró de verdad está en demo_venta, que puede diferir por descuentos.",
+  "ejemplo": true,
+  "etiqueta": "titulo",
+  "campos": {
+    "id": {"tipo": "uuid", "obligatorio": true, "sistema": true, "descripcion": "Identificador interno.", "sinonimos": []},
+    "titulo": {"tipo": "varchar", "obligatorio": true, "descripcion": "Título del libro.", "sinonimos": ["Titulo", "Título", "Libro"]},
+    "autor": {"tipo": "varchar", "obligatorio": true, "descripcion": "Quien lo escribió.", "sinonimos": ["Autor"]},
+    "genero": {
+      "tipo": "varchar",
+      "obligatorio": true,
+      "descripcion": "Género del libro. Lista cerrada: sirve de ejemplo de campo con CHECK, igual que el concepto de un gasto.",
+      "sinonimos": ["Genero", "Género"],
+      "validacion": {"lista_valores": ["novela", "ensayo", "poesia", "infantil"]}
+    },
+    "precio": {"tipo": "double", "obligatorio": true, "descripcion": "Precio de tarifa por unidad.", "sinonimos": ["Precio", "PVP"]},
+    "created_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de alta del registro.", "sinonimos": []},
+    "updated_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de última modificación.", "sinonimos": []}
+  },
+  "relaciones": []
+}

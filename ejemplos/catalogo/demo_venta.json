@@ -1,0 +1,30 @@
+{
+  "entidad": "demo_venta",
+  "tabla": "demo_venta",
+  "descripcion": "EJEMPLO (datos dummy). Cada fila es una venta de un título a un comprador en una fecha: unidades, lo que se cobró de verdad y por qué canal. Es la tabla de hechos de los ejemplos y tiene las dos puertas de entrada del framework a la vez, altas por CLI y carga de fichero, para poder demostrar las dos sobre el mismo sitio.",
+  "ejemplo": true,
+  "campos": {
+    "id": {"tipo": "uuid", "obligatorio": true, "sistema": true, "descripcion": "Identificador interno.", "sinonimos": []},
+    "demo_cliente_id": {"tipo": "uuid", "obligatorio": false, "descripcion": "Quién compró.", "sinonimos": []},
+    "demo_libro_id": {"tipo": "uuid", "obligatorio": false, "descripcion": "Qué título se vendió.", "sinonimos": []},
+    "fecha": {"tipo": "date", "obligatorio": true, "descripcion": "Día de la venta (por defecto, hoy).", "sinonimos": ["Fecha"]},
+    "unidades": {"tipo": "integer", "obligatorio": true, "descripcion": "Ejemplares vendidos.", "sinonimos": ["Unidades", "Cantidad"]},
+    "importe": {"tipo": "double", "obligatorio": true, "descripcion": "Lo cobrado en total por esas unidades. Puede no cuadrar con precio x unidades si hubo descuento: por eso se guarda y no se calcula.", "sinonimos": ["Importe", "Total"]},
+    "canal": {
+      "tipo": "varchar",
+      "obligatorio": true,
+      "descripcion": "Por dónde entró la venta.",
+      "sinonimos": ["Canal"],
+      "validacion": {"lista_valores": ["tienda", "web", "feria"]}
+    },
+    "origen_carga": {"tipo": "varchar", "obligatorio": false, "sistema": true, "descripcion": "Carga que trajo la fila. Vacío en las altas por CLI.", "sinonimos": []},
+    "extra_fields": {"tipo": "varchar", "obligatorio": false, "sistema": true, "descripcion": "Columnas del fichero no declaradas en el mapping.", "sinonimos": []},
+    "ejecucion_id": {"tipo": "integer", "obligatorio": false, "sistema": true, "descripcion": "Ejecución que creó el registro. Las ediciones posteriores no lo cambian.", "sinonimos": []},
+    "created_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de alta del registro.", "sinonimos": []},
+    "updated_at": {"tipo": "timestamp", "obligatorio": true, "sistema": true, "descripcion": "Fecha de última modificación.", "sinonimos": []}
+  },
+  "relaciones": [
+    {"campo": "demo_cliente_id", "entidad_destino": "demo_cliente", "campo_destino": "id", "tipo": "N:1"},
+    {"campo": "demo_libro_id", "entidad_destino": "demo_libro", "campo_destino": "id", "tipo": "N:1"}
+  ]
+}

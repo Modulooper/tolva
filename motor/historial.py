@@ -68,7 +68,10 @@ def politicas() -> dict:
         definicion = cargas.cargar(str(ruta))
         if "historial" in definicion:
             declaradas[definicion["nombre"]] = definicion["historial"]
-    for nombre in catalogo.listar_entidades():
+    # Con las de ejemplo incluidas: una política de conservación que no se ve
+    # es una política que la purga se salta, y eso solo se descubre cuando ya
+    # ha borrado algo.
+    for nombre in catalogo.listar_entidades(con_ejemplos=True):
         entidad = catalogo.cargar_entidad(nombre)
         if "historial" in entidad:
             declaradas[entidad["tabla"]] = entidad["historial"]

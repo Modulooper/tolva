@@ -1,10 +1,16 @@
-"""CLI: db migrar/consultar | etl definir/validar/dry-run/ejecutar/estado/exportar |
-ticket crear/listar/editar/borrar | idea crear/listar/editar/borrar | proceso analizar."""
+"""CLI: db migrar/consultar/diagrama/uso |
+etl definir/esquema/validar/dry-run/ejecutar/estado/exportar/salida |
+registro campos/crear/listar/editar/borrar (cualquier entidad del catálogo) |
+documento adjuntar/listar/purgar | proceso analizar.
+
+No hay subcomandos por entidad: `ticket crear` e `idea crear` existieron y se
+retiraron al sacar esos procesos del núcleo. El CRUD de cualquier entidad, del
+framework o de tu capa, es `registro` (ver motor/registros.py).
+"""
 
 import argparse
 import json
 import sys
-from datetime import date
 
 import duckdb
 
@@ -16,12 +22,11 @@ from . import (
     documentos,
     esquema,
     export,
-    ideas,
     motor_etl,
     perfil,
+    registros,
     salidas,
     solapamiento,
-    tickets,
     validaciones,
 )
 
@@ -42,9 +47,9 @@ def _imprimir_tabla(columnas, filas) -> None:
     print(f"({len(filas)} filas)")
 
 
-def _cmd_db_migrar(_args: argparse.Namespace) -> int:
+def _cmd_db_migrar(args: argparse.Namespace) -> int:
     try:
-        aplicadas = db.migrar()
+        aplicadas = db.migrar(con_ejemplos=args.con_ejemplos)
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
@@ -355,162 +360,26 @@ def _avisar_alarmas(resultados) -> None:
         print(validaciones.formatear(r))
 
 
-def _cmd_ticket_crear(args: argparse.Namespace) -> int:
-    con = db.conectar()
-    try:
-        try:
-            ticket_id, resultados = tickets.crear(
-                con, args.cliente, args.persona, args.concepto, args.importe, args.fecha,
-                args.descripcion, args.documento,
-            )
-        except validaciones.StopError as exc:
-            print(f"ERROR: no se creó el ticket.\n{exc}", file=sys.stderr)
-            return 1
-        except ValueError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-        print(f"Ticket creado: {ticket_id}")
-        _avisar_alarmas(resultados)
-        return 0
-    finally:
-        con.close()
-
-
-def _cmd_ticket_listar(args: argparse.Namespace) -> int:
-    con = db.conectar()
-    try:
-        columnas, filas = tickets.listar(
-            con, cliente=args.cliente, persona=args.persona, concepto=args.concepto,
-            desde=args.desde, hasta=args.hasta,
-        )
-    finally:
-        con.close()
-    _imprimir_tabla(columnas, filas)
-    return 0
-
-
-def _cmd_ticket_editar(args: argparse.Namespace) -> int:
-    con = db.conectar()
-    try:
-        try:
-            tickets.editar(
-                con, args.id, concepto=args.concepto, descripcion=args.descripcion,
-                importe=args.importe, fecha=args.fecha,
-            )
-        except validaciones.StopError as exc:
-            print(f"ERROR: no se actualizó el ticket.\n{exc}", file=sys.stderr)
-            return 1
-        except ValueError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-        print("Ticket actualizado.")
-        return 0
-    finally:
-        con.close()
-
-
-def _cmd_ticket_borrar(args: argparse.Namespace) -> int:
-    con = db.conectar()
-    try:
-        try:
-            tickets.borrar(con, args.id)
-        except ValueError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-        print("Ticket borrado.")
-        return 0
-    finally:
-        con.close()
-
-
-def _cmd_idea_crear(args: argparse.Namespace) -> int:
-    con = db.conectar()
-    try:
-        try:
-            idea_id, resultados = ideas.crear(
-                con, args.persona, args.texto, cliente=args.cliente, estado=args.estado,
-                fecha=args.fecha, documento=args.documento,
-            )
-        except validaciones.StopError as exc:
-            print(f"ERROR: no se creó la idea.\n{exc}", file=sys.stderr)
-            return 1
-        except ValueError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-        print(f"Idea creada: {idea_id}")
-        _avisar_alarmas(resultados)
-        return 0
-    finally:
-        con.close()
-
-
-def _cmd_idea_listar(args: argparse.Namespace) -> int:
-    con = db.conectar()
-    try:
-        columnas, filas = ideas.listar(
-            con, persona=args.persona, cliente=args.cliente, estado=args.estado,
-            desde=args.desde, hasta=args.hasta,
-        )
-    finally:
-        con.close()
-    _imprimir_tabla(columnas, filas)
-    return 0
-
-
-def _cmd_idea_editar(args: argparse.Namespace) -> int:
-    con = db.conectar()
-    try:
-        try:
-            ideas.editar(
-                con, args.id, texto=args.texto, cliente=args.cliente,
-                estado=args.estado, fecha=args.fecha,
-            )
-        except validaciones.StopError as exc:
-            print(f"ERROR: no se actualizó la idea.\n{exc}", file=sys.stderr)
-            return 1
-        except ValueError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-        print("Idea actualizada.")
-        return 0
-    finally:
-        con.close()
-
-
-def _cmd_idea_borrar(args: argparse.Namespace) -> int:
-    con = db.conectar()
-    try:
-        try:
-            ideas.borrar(con, args.id)
-        except ValueError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-        print("Idea borrada.")
-        return 0
-    finally:
-        con.close()
-
-
 def _cmd_db_diagrama(args: argparse.Namespace) -> int:
     con = db.conectar()
     try:
         avisos = diagrama.desajustes(con)
-        vistas = diagrama.vistas_de_consumo(con)
+        vistas = diagrama.vistas_de_consumo(con, con_ejemplos=args.con_ejemplos)
     finally:
         con.close()
 
     # Con la valla de ```mermaid se renderiza tal cual en el chat, en GitHub y
     # en Obsidian; en un terminal es texto inocuo.
     print("```mermaid")
-    print(diagrama.mermaid(completo=args.completo))
+    print(diagrama.mermaid(completo=args.completo, con_ejemplos=args.con_ejemplos))
     print("```")
 
     print("\n| tabla | qué es | campos |")
     print("|---|---|---|")
-    for tabla, descripcion, campos in diagrama.resumen():
+    for tabla, descripcion, campos in diagrama.resumen(con_ejemplos=args.con_ejemplos):
         print(f"| `{tabla}` | {descripcion} | {campos} |")
 
-    declaradas = diagrama.cargas_declaradas()
+    declaradas = diagrama.cargas_declaradas(con_ejemplos=args.con_ejemplos)
     if declaradas:
         print("\n### Cómo entran los datos\n")
         for nombre, destino, descripcion in declaradas:
@@ -575,6 +444,98 @@ def _cmd_documento_purgar(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pares(asignaciones) -> dict:
+    """`--set clave=valor` repetido -> diccionario. El `=` parte por el
+    primero, así que un valor puede llevar `=` dentro."""
+    valores = {}
+    for asignacion in asignaciones or []:
+        clave, separador, valor = asignacion.partition("=")
+        if not separador or not clave.strip():
+            raise ValueError(f"'{asignacion}' mal formado, se espera campo=valor")
+        valores[clave.strip()] = valor
+    return valores
+
+
+def _cmd_registro_campos(args: argparse.Namespace) -> int:
+    try:
+        con = db.conectar()
+        try:
+            columnas, filas = registros.describir(con, args.entidad)
+        finally:
+            con.close()
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    _imprimir_tabla(columnas, filas)
+    return 0
+
+
+def _cmd_registro_crear(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            fila_id, resultados = registros.crear(
+                con, args.entidad, _pares(args.set), documento=args.documento
+            )
+        except validaciones.StopError as exc:
+            print(f"ERROR: no se creó el registro de {args.entidad}.\n{exc}", file=sys.stderr)
+            return 1
+        except (FileNotFoundError, ValueError, duckdb.Error) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(f"{args.entidad} creado: {fila_id}")
+        _avisar_alarmas(resultados)
+        return 0
+    finally:
+        con.close()
+
+
+def _cmd_registro_listar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            filtros = [registros.partir_filtro(f) for f in args.filtro or []]
+            columnas, filas = registros.listar(con, args.entidad, filtros)
+        except (FileNotFoundError, ValueError, duckdb.Error) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+    finally:
+        con.close()
+    _imprimir_tabla(columnas, filas)
+    return 0
+
+
+def _cmd_registro_editar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            registros.editar(con, args.entidad, args.id, _pares(args.set))
+        except validaciones.StopError as exc:
+            print(f"ERROR: no se actualizó el registro de {args.entidad}.\n{exc}", file=sys.stderr)
+            return 1
+        except (FileNotFoundError, ValueError, duckdb.Error) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(f"{args.entidad} actualizado.")
+        return 0
+    finally:
+        con.close()
+
+
+def _cmd_registro_borrar(args: argparse.Namespace) -> int:
+    con = db.conectar()
+    try:
+        try:
+            registros.borrar(con, args.entidad, args.id)
+        except (FileNotFoundError, ValueError, duckdb.Error) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(f"{args.entidad} borrado.")
+        return 0
+    finally:
+        con.close()
+
+
 def _cmd_proceso_analizar(args: argparse.Namespace) -> int:
     valores = [v.strip() for v in args.valores.split(",")] if args.valores else []
 
@@ -626,12 +587,16 @@ def main(argv=None) -> int:
 
     db_parser = subparsers.add_parser("db", help="Operaciones sobre el almacén DuckDB")
     db_sub = db_parser.add_subparsers(dest="command", required=True)
-    db_sub.add_parser("migrar", help="Aplica migraciones pendientes")
+    migrar_parser = db_sub.add_parser("migrar", help="Aplica migraciones pendientes")
+    migrar_parser.add_argument("--con-ejemplos", action="store_true",
+                               help="Incluye el dominio de ejemplo (librería) con datos dummy")
     consultar_parser = db_sub.add_parser("consultar", help="Ejecuta SQL y muestra el resultado")
     consultar_parser.add_argument("sql")
     diagrama_parser = db_sub.add_parser("diagrama", help="Diagrama Mermaid del modelo, desde el catálogo")
     diagrama_parser.add_argument("--completo", action="store_true",
                                  help="Incluye también los campos de sistema")
+    diagrama_parser.add_argument("--con-ejemplos", action="store_true",
+                                 help="Incluye el dominio de ejemplo (oculto por defecto)")
     uso_parser = db_sub.add_parser("uso", help="Uso real del almacén según las consultas registradas")
     uso_parser.add_argument("--minimo", type=int, default=3, help="Repeticiones para considerar recurrente")
 
@@ -676,63 +641,6 @@ def main(argv=None) -> int:
     salida_parser.add_argument("carga")
     salida_parser.add_argument("--nombre", default=None, help="Genera solo la salida con ese nombre")
 
-    ticket_parser = subparsers.add_parser("ticket", help="CRUD de tickets de gasto")
-    ticket_sub = ticket_parser.add_subparsers(dest="command", required=True)
-
-    crear_parser = ticket_sub.add_parser("crear", help="Crea un ticket")
-    crear_parser.add_argument("--cliente", required=True)
-    crear_parser.add_argument("--persona", required=True)
-    crear_parser.add_argument("--concepto", required=True, choices=list(tickets.CONCEPTOS_VALIDOS))
-    crear_parser.add_argument("--importe", required=True, type=float)
-    crear_parser.add_argument("--fecha", required=True, type=date.fromisoformat)
-    crear_parser.add_argument("--descripcion", default=None)
-    crear_parser.add_argument("--documento", default=None, help="Justificante del que salen los datos (foto, pdf)")
-
-    listar_parser = ticket_sub.add_parser("listar", help="Lista tickets")
-    listar_parser.add_argument("--cliente", default=None)
-    listar_parser.add_argument("--persona", default=None)
-    listar_parser.add_argument("--concepto", default=None, choices=list(tickets.CONCEPTOS_VALIDOS))
-    listar_parser.add_argument("--desde", default=None, type=date.fromisoformat)
-    listar_parser.add_argument("--hasta", default=None, type=date.fromisoformat)
-
-    editar_parser = ticket_sub.add_parser("editar", help="Edita un ticket")
-    editar_parser.add_argument("id")
-    editar_parser.add_argument("--concepto", default=None, choices=list(tickets.CONCEPTOS_VALIDOS))
-    editar_parser.add_argument("--importe", default=None, type=float)
-    editar_parser.add_argument("--fecha", default=None, type=date.fromisoformat)
-    editar_parser.add_argument("--descripcion", default=None)
-
-    borrar_parser = ticket_sub.add_parser("borrar", help="Borra un ticket")
-    borrar_parser.add_argument("id")
-
-    idea_parser = subparsers.add_parser("idea", help="CRUD de ideas sueltas")
-    idea_sub = idea_parser.add_subparsers(dest="command", required=True)
-
-    idea_crear_parser = idea_sub.add_parser("crear", help="Crea una idea")
-    idea_crear_parser.add_argument("--persona", required=True)
-    idea_crear_parser.add_argument("--texto", required=True)
-    idea_crear_parser.add_argument("--cliente", default=None)
-    idea_crear_parser.add_argument("--estado", default=None, choices=list(ideas.ESTADOS_VALIDOS))
-    idea_crear_parser.add_argument("--fecha", default=None, type=date.fromisoformat)
-    idea_crear_parser.add_argument("--documento", default=None, help="Fichero de origen de la idea")
-
-    idea_listar_parser = idea_sub.add_parser("listar", help="Lista ideas")
-    idea_listar_parser.add_argument("--persona", default=None)
-    idea_listar_parser.add_argument("--cliente", default=None)
-    idea_listar_parser.add_argument("--estado", default=None, choices=list(ideas.ESTADOS_VALIDOS))
-    idea_listar_parser.add_argument("--desde", default=None, type=date.fromisoformat)
-    idea_listar_parser.add_argument("--hasta", default=None, type=date.fromisoformat)
-
-    idea_editar_parser = idea_sub.add_parser("editar", help="Edita una idea")
-    idea_editar_parser.add_argument("id")
-    idea_editar_parser.add_argument("--texto", default=None)
-    idea_editar_parser.add_argument("--cliente", default=None)
-    idea_editar_parser.add_argument("--estado", default=None, choices=list(ideas.ESTADOS_VALIDOS))
-    idea_editar_parser.add_argument("--fecha", default=None, type=date.fromisoformat)
-
-    idea_borrar_parser = idea_sub.add_parser("borrar", help="Borra una idea")
-    idea_borrar_parser.add_argument("id")
-
     documento_parser = subparsers.add_parser("documento", help="Documentos archivados y su historial")
     documento_sub = documento_parser.add_subparsers(dest="command", required=True)
 
@@ -749,6 +657,37 @@ def main(argv=None) -> int:
 
     purgar_parser = documento_sub.add_parser("purgar", help="Libera los bytes que ningún proceso conserva")
     purgar_parser.add_argument("--aplicar", action="store_true", help="Borra de verdad (por defecto va en seco)")
+
+    # CRUD genérico: la entidad la pone el catálogo, no el código. Es lo que
+    # permite que un proceso viva entero en la capa propia (ver motor/registros.py).
+    registro_parser = subparsers.add_parser(
+        "registro", help="CRUD de cualquier entidad declarada en el catálogo"
+    )
+    registro_sub = registro_parser.add_subparsers(dest="command", required=True)
+
+    reg_campos_parser = registro_sub.add_parser("campos", help="Qué campos acepta la entidad")
+    reg_campos_parser.add_argument("entidad", help="Entidad del catálogo (tarea, ticket...)")
+
+    reg_crear_parser = registro_sub.add_parser("crear", help="Crea un registro")
+    reg_crear_parser.add_argument("entidad")
+    reg_crear_parser.add_argument("--set", action="append", metavar="CAMPO=VALOR",
+                                  help="Repetible. Las referencias admiten el nombre: persona=Nacho")
+    reg_crear_parser.add_argument("--documento", default=None, help="Fichero a archivar con el alta")
+
+    reg_listar_parser = registro_sub.add_parser("listar", help="Lista registros")
+    reg_listar_parser.add_argument("entidad")
+    reg_listar_parser.add_argument("--filtro", action="append", metavar="CAMPO=VALOR",
+                                   help="Repetible. Admite <=, >=, <, >, <> además de =")
+
+    reg_editar_parser = registro_sub.add_parser("editar", help="Edita un registro")
+    reg_editar_parser.add_argument("entidad")
+    reg_editar_parser.add_argument("id")
+    reg_editar_parser.add_argument("--set", action="append", metavar="CAMPO=VALOR",
+                                   help="Repetible. Valor vacío deja el campo a nulo")
+
+    reg_borrar_parser = registro_sub.add_parser("borrar", help="Borra un registro")
+    reg_borrar_parser.add_argument("entidad")
+    reg_borrar_parser.add_argument("id")
 
     proceso_parser = subparsers.add_parser("proceso", help="Análisis de solapamiento para entidades nuevas")
     proceso_sub = proceso_parser.add_subparsers(dest="command", required=True)
@@ -788,26 +727,6 @@ def main(argv=None) -> int:
         if args.command == "salida":
             return _cmd_etl_salida(args)
 
-    if args.namespace == "ticket":
-        if args.command == "crear":
-            return _cmd_ticket_crear(args)
-        if args.command == "listar":
-            return _cmd_ticket_listar(args)
-        if args.command == "editar":
-            return _cmd_ticket_editar(args)
-        if args.command == "borrar":
-            return _cmd_ticket_borrar(args)
-
-    if args.namespace == "idea":
-        if args.command == "crear":
-            return _cmd_idea_crear(args)
-        if args.command == "listar":
-            return _cmd_idea_listar(args)
-        if args.command == "editar":
-            return _cmd_idea_editar(args)
-        if args.command == "borrar":
-            return _cmd_idea_borrar(args)
-
     if args.namespace == "documento":
         if args.command == "adjuntar":
             return _cmd_documento_adjuntar(args)
@@ -815,6 +734,18 @@ def main(argv=None) -> int:
             return _cmd_documento_listar(args)
         if args.command == "purgar":
             return _cmd_documento_purgar(args)
+
+    if args.namespace == "registro":
+        if args.command == "campos":
+            return _cmd_registro_campos(args)
+        if args.command == "crear":
+            return _cmd_registro_crear(args)
+        if args.command == "listar":
+            return _cmd_registro_listar(args)
+        if args.command == "editar":
+            return _cmd_registro_editar(args)
+        if args.command == "borrar":
+            return _cmd_registro_borrar(args)
 
     if args.namespace == "proceso":
         if args.command == "analizar":
