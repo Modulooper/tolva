@@ -317,3 +317,90 @@ class PruebaOperacionCelda(PruebaConAlmacen):
         resultado = motor_etl.dry_run_carga(nombre, db_path=self.db_path)
         primera = resultado["ficheros"][0]["muestra_validas"][0]
         self.assertEqual(primera["sucursal"], "Bilbao")
+
+
+class PruebaHistoricoAcumulativo(PruebaConAlmacen):
+    """El patrón de la segunda tabla con singularidad propia, y su trampa.
+
+    Alimentar un histórico desde `tras_promover` parece que se hace filtrando
+    por el campo de negocio del fichero (`WHERE mes = $p_mes`). No: el destino
+    acumula TODAS las sucursales, así que ese filtro se lleva también las filas
+    de las demás que compartan mes, y el histórico duplica en cada carga. El
+    filtro correcto es `ejecucion_id = $ejecucion_id`, que selecciona exacta y
+    únicamente lo que acaba de escribir esta ejecución.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.con.execute("""
+            CREATE TABLE pedido (
+                sucursal VARCHAR, mes VARCHAR, referencia VARCHAR,
+                extra_fields VARCHAR, ejecucion_id BIGINT
+            )
+        """)
+        self.con.execute("""
+            CREATE TABLE pedido_historico (
+                sucursal VARCHAR, mes VARCHAR, referencia VARCHAR,
+                extra_fields VARCHAR, ejecucion_id BIGINT
+            )
+        """)
+        self.escribir_catalogo(self.ficha_catalogo("pedido", {
+            "sucursal": ("varchar", False), "mes": ("varchar", False),
+            "referencia": ("varchar", False), "extra_fields": ("varchar", False),
+            "ejecucion_id": ("integer", False),
+        }))
+
+    def _carga(self, filtro_sql):
+        return self.escribir_carga({
+            "nombre": "pedidos",
+            "descripcion": DESCRIPCION,
+            "carpeta": str(self.entrada_dir / "pedidos"),
+            "patron": "*.csv",
+            "formato": "csv",
+            "delimitador": ";",
+            "fila_cabecera": 1,
+            "tabla_destino": "pedido",
+            "campos_singularidad": ["sucursal", "mes", "referencia"],
+            "mapping": [
+                {"origen": "Sucursal", "destino": "sucursal", "operaciones": [{"tipo": "trim"}]},
+                {"origen": "Mes", "destino": "mes", "operaciones": [{"tipo": "trim"}]},
+                {"origen": "Ref", "destino": "referencia", "operaciones": [{"tipo": "trim"}]},
+            ],
+            "acciones": [{
+                "momento": "tras_promover",
+                "sql": f"INSERT INTO pedido_historico SELECT * FROM pedido WHERE {filtro_sql}",
+            }],
+        })
+
+    def _cargar(self, nombre, fichero, sucursal):
+        self.escribir_csv(
+            "pedidos", fichero,
+            f"Sucursal;Mes;Ref\n{sucursal};03;P-1\n{sucursal};03;P-2\n",
+        )
+        motor_etl.ejecutar_carga(nombre, db_path=self.db_path)
+
+    def test_filtrar_por_ejecucion_aisla_lo_que_escribio_esta_carga(self):
+        nombre = self._carga("ejecucion_id = $ejecucion_id")
+        self._cargar(nombre, "bilbao.csv", "Bilbao")
+        self._cargar(nombre, "madrid.csv", "Madrid")
+
+        self.assertEqual(self.escalar("SELECT count(*) FROM pedido"), 4)
+        self.assertEqual(self.escalar("SELECT count(*) FROM pedido_historico"), 4)
+        self.assertEqual(
+            self.filas(
+                "SELECT sucursal, count(*) FROM pedido_historico GROUP BY 1 ORDER BY 1"
+            ),
+            [("Bilbao", 2), ("Madrid", 2)],
+        )
+
+    def test_filtrar_por_un_campo_de_negocio_arrastra_las_otras_sucursales(self):
+        """Por qué la prueba de arriba no es una obviedad."""
+        nombre = self._carga("mes = '03'")
+        self._cargar(nombre, "bilbao.csv", "Bilbao")
+        self._cargar(nombre, "madrid.csv", "Madrid")
+
+        # La segunda carga se lleva también las dos de Bilbao, que ya estaban.
+        self.assertEqual(self.escalar("SELECT count(*) FROM pedido_historico"), 6)
+        self.assertEqual(
+            self.escalar("SELECT count(*) FROM pedido_historico WHERE sucursal = 'Bilbao'"), 4
+        )

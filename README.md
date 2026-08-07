@@ -573,6 +573,37 @@ el motor no le pondrá `ejecucion_id` a esas filas salvo que lo escribas
 (`$ejecucion_id` está disponible, ver "Variables en el SQL"), y sin esa
 columna no se le pueden adjuntar documentos ni encadenar ediciones.
 
+#### Filtra por la ejecución, no por el dato
+
+La forma natural de escribir esa acción es la equivocada:
+
+```json
+{"momento": "tras_promover",
+ "sql": "INSERT INTO pedido_historico SELECT * FROM pedido WHERE mes = $p_mes"}
+```
+
+**El destino acumula todas las sucursales.** Al cargar Madrid de marzo, ese
+`WHERE` se lleva también las filas de Bilbao de marzo que ya estaban, y el
+histórico las duplica en cada carga. Un mes después nadie sabe por qué los
+totales no cuadran.
+
+Lo correcto es filtrar por la ejecución, que selecciona exacta y únicamente
+lo que **esta** carga acaba de escribir:
+
+```json
+{"momento": "tras_promover",
+ "sql": "INSERT INTO pedido_historico SELECT * FROM pedido WHERE ejecucion_id = $ejecucion_id"}
+```
+
+Dos avisos sobre eso:
+
+- No añadas `$ejecucion_id` al `SELECT *` si la tabla destino ya tiene esa
+  columna: el `*` la incluye y la duplicarías.
+- **En una carga con hall, `ejecucion_id` no llega solo.** La hall tiene que
+  declarar la columna y `transformacion_sql` tiene que arrastrarla; si no,
+  queda a nulo en el destino y el filtro no casa con nada — la acción no
+  falla, escribe cero filas.
+
 ### Trazabilidad por carga
 
 Cada ejecución se registra en `_ejecuciones` **antes** de escribir, así que
