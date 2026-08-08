@@ -56,9 +56,9 @@ class PruebaPrecedencia(BaseEntorno):
         """La variable es para lo puntual: lanzar contra otro almacén sin
         tocar la configuración de la máquina."""
         entorno.escribir_config({"datos": "/del/fichero"}, self.config)
-        with mock.patch.dict(os.environ, {"CLAUDETL_DATOS": "/de/la/variable"}):
+        with mock.patch.dict(os.environ, {"TOLVA_DATOS": "/de/la/variable"}):
             self.assertEqual(entorno.ruta("datos"), Path("/de/la/variable"))
-            self.assertIn("CLAUDETL_DATOS", entorno.origen("datos"))
+            self.assertIn("TOLVA_DATOS", entorno.origen("datos"))
 
     def test_el_export_es_independiente_del_almacen(self):
         """Es la razón de que sean tres ajustes y no uno: sus requisitos son

@@ -1,4 +1,4 @@
-"""Batería de pruebas de ClaudETL.
+"""Batería de pruebas de Tolva.
 
     python -m unittest discover -s pruebas -t .
 

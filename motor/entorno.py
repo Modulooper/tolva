@@ -48,9 +48,9 @@ FICHERO_CONFIG = ROOT / "config.local.json"
 
 # clave -> (variable de entorno, cómo se calcula el valor por defecto)
 AJUSTES = {
-    "datos": ("CLAUDETL_DATOS", lambda cfg: ROOT / "datos"),
-    "documentos": ("CLAUDETL_DOCUMENTOS", lambda cfg: ruta("datos", cfg) / "documentos"),
-    "export": ("CLAUDETL_EXPORT", lambda cfg: ROOT / "export"),
+    "datos": ("TOLVA_DATOS", lambda cfg: ROOT / "datos"),
+    "documentos": ("TOLVA_DOCUMENTOS", lambda cfg: ruta("datos", cfg) / "documentos"),
+    "export": ("TOLVA_EXPORT", lambda cfg: ROOT / "export"),
 }
 
 # Solo el estado. Las exportaciones se quedan fuera a propósito: que estén en

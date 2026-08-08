@@ -1,4 +1,4 @@
-# ClaudETL — instrucciones para Claude Code
+# Tolva — instrucciones para Claude Code
 
 Framework ETL conversacional local sobre DuckDB para gestionar información de
 trabajo propia (procesos de negocio y ETL de ficheros recurrentes):

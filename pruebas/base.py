@@ -25,7 +25,7 @@ class PruebaConAlmacen(unittest.TestCase):
     """Almacén migrado desde cero y aislado, uno por prueba."""
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="claudetl_pruebas_"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="tolva_pruebas_"))
         self.catalogo_dir = self.tmp / "catalogo"
         self.cargas_dir = self.tmp / "cargas"
         self.entrada_dir = self.tmp / "entrada"

@@ -1,8 +1,18 @@
-# ClaudETL
+# Tolva
 
-**Un ETL con el que se habla.** Cuentas lo que necesitas llevar; él decide si
-eso pide una tabla nueva, un CRUD o una carga de fichero, te lo propone con
-evidencia, y solo lo escribe cuando dices que sí.
+> *Tolva*: la boca por la que entra el material en una máquina.
+
+**Por donde entran tus datos, y con la que se habla.** Le cuentas qué te llega;
+te pregunta lo que no puede adivinar —esa columna de mes que pone `03`, ¿es
+texto o número?—, y solo escribe cuando dices que sí.
+
+Casi todas las herramientas de datos con IA se han puesto en el análisis, que
+es el tramo que ya tenía herramientas. Esto va del principio: **la ingesta**.
+
+Y con una regla que no se negocia: **la IA está en el diseño, no en la
+ejecución**. De la conversación sale un fichero de configuración; a partir de
+ahí es SQL corriendo solo, igual cada mes. Ninguna fila de tus datos la toca
+un modelo.
 
 Local, monousuario y autónomo, sobre DuckDB. Sin servidor, sin autenticación,
 sin nube. Todo vive en un fichero en tu disco.
@@ -15,7 +25,7 @@ lista de cosas pendientes, el export del ERP que abres y cruzas a mano. Montar
 una base de datos para eso cuesta más de lo que ahorra, así que no se monta, y
 al final hay tres nombres para la misma cosa repartidos en cinco ficheros.
 
-ClaudETL asume que el trabajo de modelar es conversación, y que lo caro no es
+Tolva asume que el trabajo de modelar es conversación, y que lo caro no es
 escribir el `CREATE TABLE` sino decidir qué va dentro. Los comandos existen
 —están documentados más abajo— pero son el suelo, no la interfaz.
 
@@ -60,7 +70,7 @@ De ahí sale una migración, una ficha de catálogo y una entrada en
 
 ```bash
 git clone <url-del-repo>
-cd ClaudETL
+cd tolva
 python -m venv .venv && source .venv/Scripts/activate
 pip install -r requirements.txt
 
@@ -102,7 +112,7 @@ Requisitos: Python 3.11+ y Git.
 
 ```bash
 git clone <url-del-repo>
-cd ClaudETL
+cd tolva
 
 python -m venv .venv
 source .venv/Scripts/activate   # Windows Git Bash / PowerShell: .venv\Scripts\Activate.ps1
@@ -215,8 +225,8 @@ variable de entorno  >  config.local.json  >  valor por defecto
 ```
 
 El fichero (que escribe `db init`, y está en `.gitignore` porque es de tu
-máquina) fija la instalación. Las variables `CLAUDETL_DATOS`,
-`CLAUDETL_DOCUMENTOS` y `CLAUDETL_EXPORT` quedan para lo puntual: lanzar una
+máquina) fija la instalación. Las variables `TOLVA_DATOS`,
+`TOLVA_DOCUMENTOS` y `TOLVA_EXPORT` quedan para lo puntual: lanzar una
 carga contra otro almacén, o enrutar por usuario.
 
 El orden no es arbitrario. Si solo hubiera variable de entorno, se pone en una
@@ -269,7 +279,7 @@ nada más: ni tickets, ni ideas, ni siquiera `persona`, `cliente` y `proyecto`,
 que estuvieron aquí hasta el hito 26. Eran un modelo de consultoría —quién
 hace el trabajo, para quién, en el marco de qué— y venía de serie con el
 framework: quien quisiera usar esto para su bodega o su gimnasio heredaba un
-vocabulario que no es el suyo. ClaudETL opina sobre **cómo** se declaran, se
+vocabulario que no es el suyo. Tolva opina sobre **cómo** se declaran, se
 cargan y se rastrean las entidades, no sobre **cuáles** son. Hay una prueba que
 falla si alguna vez vuelve a colarse una tabla de negocio en el núcleo.
 

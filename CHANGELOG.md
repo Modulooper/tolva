@@ -9,6 +9,19 @@ falta. El **porqué** de cada decisión de modelo sí se conserva, pero no en es
 fichero: vive en la tabla `_decisiones` del propio almacén, junto a la
 migración que la tomó.
 
+## [0.4.0] — 2026-08-08
+
+### Cambiado
+
+- **El proyecto pasa a llamarse Tolva.** Antes ClaudETL, que ataba el nombre a
+  una marca ajena y decía «ETL» justo a quien huye de esa palabra. Una tolva es
+  la boca por la que entra el material en una máquina: apunta a la ingesta, que
+  es de lo que va esto.
+- **Las variables de entorno pasan de `CLAUDETL_*` a `TOLVA_*`.** Es un cambio
+  incompatible, hecho ahora a propósito: todavía no hay ninguna instalación con
+  ellas puestas. Después habría roto en silencio la de quien las tuviera,
+  creándole un almacén vacío.
+
 ## [0.3.0] — 2026-08-08
 
 ### Añadido
