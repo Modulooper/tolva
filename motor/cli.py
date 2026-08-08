@@ -20,6 +20,7 @@ from . import (
     db,
     diagrama,
     documentos,
+    entorno,
     esquema,
     export,
     motor_etl,
@@ -48,6 +49,12 @@ def _imprimir_tabla(columnas, filas) -> None:
 
 
 def _cmd_db_migrar(args: argparse.Namespace) -> int:
+    # El aviso va aquí y no en `db.migrar`: el motor no escribe en consola, y
+    # migrar es el momento en que alguien está montando la instalación y aún
+    # puede mover los datos sin coste.
+    aviso = entorno.aviso_de_sincronizacion()
+    if aviso:
+        print(aviso, file=sys.stderr)
     try:
         aplicadas = db.migrar(con_ejemplos=args.con_ejemplos)
     except RuntimeError as exc:

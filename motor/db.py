@@ -6,10 +6,12 @@ from pathlib import Path
 
 import duckdb
 
-from . import rutas
+from . import entorno, rutas
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT / "datos" / "almacen.duckdb"
+# Se resuelve al importar: la ruta de los datos es configuración del entorno,
+# no algo que cambie a mitad de ejecución. Ver motor/entorno.py.
+DB_PATH = entorno.datos_dir() / "almacen.duckdb"
 MIGRACIONES_DIR = ROOT / "migraciones"
 
 

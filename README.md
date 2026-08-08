@@ -188,6 +188,41 @@ vía pensada ni probada para este proyecto.
                     es tu repositorio git aparte — ver "Núcleo y capa propia")
 ```
 
+## Dónde viven los datos
+
+Por defecto, el almacén y los documentos archivados cuelgan de `datos/`, dentro
+del repositorio. Para moverlos a otro sitio, sin tocar el código:
+
+```bash
+CLAUDETL_DATOS=C:/datos/schemate
+```
+
+Se mueven **los datos** (`almacen.duckdb` y los documentos). Las cargas, el
+catálogo y las migraciones se quedan donde están: son código y van versionados.
+
+### No lo dejes en una carpeta sincronizada
+
+Y esto no es una recomendación de estilo. Un fichero de base de datos **no es
+un documento**, y OneDrive, SharePoint, Dropbox o Drive asumen que pueden
+copiar el fichero entero cuando les parezca:
+
+- Resuben el fichero completo en cada cambio. Un almacén de 200 MB se vuelve a
+  subir entero porque has editado una fila.
+- Pueden copiarlo **mientras se escribe**, y lo que sube es una foto
+  incoherente que solo se descubre el día que la restauras.
+- Si dos máquinas lo tocan, no fusionan: dejan una *copia en conflicto* y a
+  partir de ahí hay dos verdades divergentes sin que nadie avise.
+- Mantienen handles abiertos, que es lo que convierte un borrado normal en un
+  «acceso denegado».
+
+`db migrar` avisa si detecta que la carpeta de datos cuelga de una ruta con
+pinta de estar sincronizada. Es solo un aviso —la heurística mira nombres de
+carpeta y no puede acertar siempre—, pero si salta, hazle caso.
+
+Si necesitas que los datos estén en un sitio compartido, el patrón correcto es
+escribir en local y **publicar una copia** al recurso compartido: copiar un
+fichero cerrado es seguro; sincronizar uno abierto no.
+
 ## Núcleo y capa propia
 
 El framework y lo que tú cargas con él no viven en el mismo sitio:

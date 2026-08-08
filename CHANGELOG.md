@@ -9,6 +9,18 @@ falta. El **porqué** de cada decisión de modelo sí se conserva, pero no en es
 fichero: vive en la tabla `_decisiones` del propio almacén, junto a la
 migración que la tomó.
 
+## [0.3.0] — 2026-08-08
+
+### Añadido
+
+- **`CLAUDETL_DATOS`**: la carpeta de datos (almacén y documentos archivados)
+  se puede mover fuera del repositorio con una variable de entorno. El código,
+  las cargas y el catálogo se quedan donde están.
+- **Aviso de carpeta sincronizada** en `db migrar`. Un fichero DuckDB dentro de
+  OneDrive, SharePoint, Dropbox o Drive es un riesgo real: el cliente resube el
+  fichero entero en cada cambio, puede copiarlo a medio escribir, deja copias
+  en conflicto en vez de fusionar y mantiene handles que bloquean borrados.
+
 ## [0.2.0] — 2026-08-07
 
 ### Añadido

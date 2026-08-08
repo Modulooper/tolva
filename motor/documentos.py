@@ -18,9 +18,10 @@ import mimetypes
 import shutil
 from pathlib import Path
 
+from . import entorno
 from .db import ROOT
 
-DOCUMENTOS_DIR = ROOT / "datos" / "documentos"
+DOCUMENTOS_DIR = entorno.datos_dir() / "documentos"
 TAG_ORIGEN = "crear"
 BLOQUE = 1024 * 1024
 
