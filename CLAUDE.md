@@ -10,10 +10,27 @@ principal para modelar datos, cargar ficheros y llevar el día a día.
 Si `datos/almacen.duckdb` no existe todavía (comprueba con un `ls`/`Test-Path`
 antes de asumir nada), esto es una instalación nueva. Sigue "Instalación" en
 [README.md](README.md) sin preguntar paso a paso (clonar ya hecho, venv, pip
-install, `db migrar`), y verifica al final con `db migrar --con-ejemplos` y
+install), y verifica al final con `db migrar --con-ejemplos` y
 `registro listar demo_venta`: una instalación limpia del núcleo no crea
 ninguna tabla de negocio —solo las de sistema—, así que lo único que se puede
 listar de entrada es el dominio de ejemplo.
+
+**Antes de migrar, pregunta dónde deben vivir los datos.** Es lo único de la
+instalación que no se puede decidir por el usuario, y lo único que cuesta caro
+cambiar después, porque hay que mover ficheros a mano. Lanza `db rutas` para
+ver los valores por defecto y plantéale dos cosas:
+
+- Si el repositorio está dentro de una carpeta sincronizada (OneDrive,
+  SharePoint, Dropbox, Drive), **el almacén tiene que salir de ahí**: propón
+  una ruta local con `db init --datos <ruta>` y explica por qué (ver README,
+  "Dónde viven los datos"). `db rutas` te lo marca con un OJO.
+- Las **exportaciones** son el caso contrario: pregúntale si quiere que vayan
+  a una carpeta compartida, porque suele ser justo lo que busca para abrirlas
+  desde Excel o Power BI.
+
+Si acepta las rutas por defecto, no escribas `config.local.json`: un fichero de
+configuración que solo repite los valores por defecto es ruido que además hay
+que mantener.
 
 Justo después de dejarlo instalado y verificado — o al arrancar en un repo
 que ya estaba instalado pero es la primera vez que hablas con este usuario —

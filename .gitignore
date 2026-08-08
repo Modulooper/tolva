@@ -15,3 +15,7 @@ __pycache__/
 # Capa propia: cargas, catálogo y migraciones de cada instalación.
 # Es su propio repositorio git, privado. Nunca sale del repo público.
 /propio/**
+
+# Configuracion de esta maquina: donde viven el almacen, los documentos
+# y las exportaciones. La escribe `db init`.
+config.local.json

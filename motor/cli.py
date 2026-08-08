@@ -68,6 +68,51 @@ def _cmd_db_migrar(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_db_rutas(_args: argparse.Namespace) -> int:
+    """Dónde está cada cosa y por qué. La mitad de los sustos con esto son
+    'creía que estaba mirando al otro almacén'."""
+    filas = []
+    for clave, (ruta, origen) in entorno.rutas_efectivas().items():
+        sincronizada = entorno.carpeta_sincronizada(ruta)
+        nota = ""
+        if sincronizada and clave in entorno.AJUSTES_QUE_NO_DEBEN_SINCRONIZARSE:
+            nota = f"OJO: dentro de '{sincronizada}'"
+        filas.append([clave, str(ruta), origen, nota])
+    _imprimir_tabla(["ajuste", "ruta", "de dónde sale", ""], filas)
+    print(f"\nPrecedencia: variable de entorno > {entorno.FICHERO_CONFIG.name} > valor por defecto")
+    print("Para fijarlos:  db init --datos <ruta> [--documentos <ruta>] [--export <ruta>]")
+    return 0
+
+
+def _cmd_db_init(args: argparse.Namespace) -> int:
+    """Escribe la configuración de esta máquina.
+
+    No mueve ni copia nada: solo declara dónde debe mirar el sistema. Mover
+    los datos existentes es del usuario, a propósito — copiarlos por su cuenta
+    dejaría dos almacenes divergiendo sin que nadie avise.
+    """
+    valores = {"datos": args.datos, "documentos": args.documentos, "export": args.export}
+    if not any(valores.values()):
+        print(
+            "No has indicado ninguna ruta. Los valores por defecto ya funcionan;\n"
+            "usa `db rutas` para verlos y `db init --datos <ruta>` para cambiarlos.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        fichero = entorno.escribir_config(valores)
+    except (ValueError, OSError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(f"Escrito {fichero.name}.")
+    _cmd_db_rutas(args)
+    print(
+        "\nOJO: esto no mueve nada. Si ya tenías datos, muévelos tú a la ruta nueva\n"
+        "(mover, no copiar: dos almacenes divergiendo no avisan de nada)."
+    )
+    return 0
+
+
 def _cmd_db_consultar(args: argparse.Namespace) -> int:
     try:
         columnas, filas = db.consultar(args.sql)
@@ -594,6 +639,13 @@ def main(argv=None) -> int:
 
     db_parser = subparsers.add_parser("db", help="Operaciones sobre el almacén DuckDB")
     db_sub = db_parser.add_subparsers(dest="command", required=True)
+    rutas_parser = db_sub.add_parser("rutas", help="Dónde vive cada cosa y de dónde sale la ruta")
+    init_parser = db_sub.add_parser("init", help="Fija dónde viven los datos en esta máquina")
+    init_parser.add_argument("--datos", default=None, help="Carpeta del almacén")
+    init_parser.add_argument("--documentos", default=None,
+                             help="Carpeta de documentos archivados (por defecto, dentro de --datos)")
+    init_parser.add_argument("--export", default=None, help="Carpeta de exportaciones y salidas")
+
     migrar_parser = db_sub.add_parser("migrar", help="Aplica migraciones pendientes")
     migrar_parser.add_argument("--con-ejemplos", action="store_true",
                                help="Incluye el dominio de ejemplo (librería) con datos dummy")
@@ -709,6 +761,10 @@ def main(argv=None) -> int:
     if args.namespace == "db":
         if args.command == "migrar":
             return _cmd_db_migrar(args)
+        if args.command == "rutas":
+            return _cmd_db_rutas(args)
+        if args.command == "init":
+            return _cmd_db_init(args)
         if args.command == "consultar":
             return _cmd_db_consultar(args)
         if args.command == "uso":

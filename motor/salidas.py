@@ -13,8 +13,10 @@ parquet y CSV, aquí el SQL y el nombre son libres.
 from datetime import datetime
 from pathlib import Path
 
+from . import entorno
+
 ROOT = Path(__file__).resolve().parent.parent
-EXPORT_DIR = ROOT / "export"
+EXPORT_DIR = entorno.ruta("export")
 
 FORMATOS = {".csv": "csv", ".parquet": "parquet", ".xlsx": "xlsx"}
 

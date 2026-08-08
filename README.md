@@ -190,38 +190,63 @@ vía pensada ni probada para este proyecto.
 
 ## Dónde viven los datos
 
-Por defecto, el almacén y los documentos archivados cuelgan de `datos/`, dentro
-del repositorio. Para moverlos a otro sitio, sin tocar el código:
+Tres ubicaciones, y **no son la misma cosa** por mucho que por defecto cuelguen
+todas del repositorio:
+
+| Ajuste | Qué guarda | Por defecto | Naturaleza |
+|---|---|---|---|
+| `datos` | `almacen.duckdb` | `datos/` | estado, irremplazable |
+| `documentos` | ficheros de origen y justificantes | `<datos>/documentos` | estado, irremplazable |
+| `export` | vistas y salidas (parquet, csv, xlsx) | `export/` | resultado, regenerable |
 
 ```bash
-CLAUDETL_DATOS=C:/datos/schemate
+python -m motor.cli db rutas                        # dónde está cada cosa y por qué
+python -m motor.cli db init --datos C:/datos/schemate
 ```
 
-Se mueven **los datos** (`almacen.duckdb` y los documentos). Las cargas, el
-catálogo y las migraciones se quedan donde están: son código y van versionados.
+`db init` **no mueve nada**: solo declara dónde debe mirar el sistema. Si ya
+tenías datos, muévelos tú — y mueve, no copies: dos almacenes divergiendo no
+avisan de nada.
 
-### No lo dejes en una carpeta sincronizada
+Precedencia:
 
-Y esto no es una recomendación de estilo. Un fichero de base de datos **no es
-un documento**, y OneDrive, SharePoint, Dropbox o Drive asumen que pueden
-copiar el fichero entero cuando les parezca:
+```
+variable de entorno  >  config.local.json  >  valor por defecto
+```
 
-- Resuben el fichero completo en cada cambio. Un almacén de 200 MB se vuelve a
-  subir entero porque has editado una fila.
+El fichero (que escribe `db init`, y está en `.gitignore` porque es de tu
+máquina) fija la instalación. Las variables `CLAUDETL_DATOS`,
+`CLAUDETL_DOCUMENTOS` y `CLAUDETL_EXPORT` quedan para lo puntual: lanzar una
+carga contra otro almacén, o enrutar por usuario.
+
+El orden no es arbitrario. Si solo hubiera variable de entorno, se pone en una
+terminal, la siguiente sesión no la ve, se crea un almacén vacío **sin
+quejarse** y parece que se han perdido los datos. El fichero no se olvida.
+
+### Por qué son tres ajustes y no uno
+
+Porque sus requisitos son opuestos.
+
+**El almacén no debe vivir en una carpeta sincronizada.** Un fichero de base de
+datos no es un documento, y OneDrive, SharePoint, Dropbox o Drive asumen que
+pueden copiarlo cuando les parezca:
+
+- Resuben el fichero entero en cada cambio. Un almacén de 200 MB se vuelve a
+  subir porque has editado una fila.
 - Pueden copiarlo **mientras se escribe**, y lo que sube es una foto
   incoherente que solo se descubre el día que la restauras.
-- Si dos máquinas lo tocan, no fusionan: dejan una *copia en conflicto* y a
+- Si dos máquinas lo tocan no fusionan: dejan una *copia en conflicto* y a
   partir de ahí hay dos verdades divergentes sin que nadie avise.
 - Mantienen handles abiertos, que es lo que convierte un borrado normal en un
   «acceso denegado».
 
-`db migrar` avisa si detecta que la carpeta de datos cuelga de una ruta con
-pinta de estar sincronizada. Es solo un aviso —la heurística mira nombres de
-carpeta y no puede acertar siempre—, pero si salta, hazle caso.
+**Las exportaciones, en cambio, a menudo quieres que sí estén ahí**: para eso
+se generan, para abrirlas desde Excel o enlazarlas en Power BI, puede que desde
+otra máquina. Son ficheros cerrados y regenerables.
 
-Si necesitas que los datos estén en un sitio compartido, el patrón correcto es
-escribir en local y **publicar una copia** al recurso compartido: copiar un
-fichero cerrado es seguro; sincronizar uno abierto no.
+Por eso `db migrar` y `db rutas` avisan si el almacén o los documentos caen en
+una ruta con pinta de sincronizada, y **no dicen nada de las exportaciones**.
+Es heurística sobre nombres de carpeta: avisa, nunca impide.
 
 ## Núcleo y capa propia
 

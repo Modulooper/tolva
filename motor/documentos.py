@@ -21,7 +21,7 @@ from pathlib import Path
 from . import entorno
 from .db import ROOT
 
-DOCUMENTOS_DIR = entorno.datos_dir() / "documentos"
+DOCUMENTOS_DIR = entorno.ruta("documentos")
 TAG_ORIGEN = "crear"
 BLOQUE = 1024 * 1024
 

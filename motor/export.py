@@ -10,8 +10,10 @@ from pathlib import Path
 
 from . import consultas, db
 
+from . import entorno
+
 ROOT = Path(__file__).resolve().parent.parent
-EXPORT_DIR = ROOT / "export"
+EXPORT_DIR = entorno.ruta("export")
 
 
 def vistas_disponibles(con) -> list:

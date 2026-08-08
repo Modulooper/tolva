@@ -13,13 +13,25 @@ migración que la tomó.
 
 ### Añadido
 
-- **`CLAUDETL_DATOS`**: la carpeta de datos (almacén y documentos archivados)
-  se puede mover fuera del repositorio con una variable de entorno. El código,
-  las cargas y el catálogo se quedan donde están.
-- **Aviso de carpeta sincronizada** en `db migrar`. Un fichero DuckDB dentro de
-  OneDrive, SharePoint, Dropbox o Drive es un riesgo real: el cliente resube el
-  fichero entero en cada cambio, puede copiarlo a medio escribir, deja copias
-  en conflicto en vez de fusionar y mantiene handles que bloquean borrados.
+- **Tres ubicaciones configurables por separado**: el almacén (`datos`), los
+  documentos archivados (`documentos`) y las exportaciones (`export`). Se
+  separan porque sus requisitos son opuestos: el almacén no debe vivir en una
+  carpeta sincronizada y las exportaciones a menudo sí, que para eso se
+  generan.
+- **`db init`** escribe la configuración de esta máquina en
+  `config.local.json` (fuera del control de versiones). No mueve nada: solo
+  declara dónde mirar.
+- **`db rutas`** enseña dónde está cada cosa y de dónde sale el valor —
+  variable de entorno, fichero o valor por defecto—, que es la mitad de los
+  sustos con esto.
+- Precedencia `variable de entorno > config.local.json > valor por defecto`.
+  El fichero fija la instalación; la variable queda para lo puntual. Si solo
+  hubiera variable, olvidarla en una sesión crearía un almacén vacío sin
+  quejarse y parecería que se han perdido los datos.
+- **Aviso de carpeta sincronizada** en `db migrar` y `db rutas`, solo para el
+  almacén y los documentos. Un cliente de sincronización resube el fichero
+  entero en cada cambio, puede copiarlo a medio escribir, deja copias en
+  conflicto en vez de fusionar y mantiene handles que bloquean borrados.
 
 ## [0.2.0] — 2026-08-07
 
