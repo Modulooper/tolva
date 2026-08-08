@@ -37,6 +37,7 @@ import json
 import os
 import shutil
 import stat
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -145,8 +146,14 @@ def _borrar_arbol(carpeta) -> bool:
         except OSError:
             pass
 
+    # El parámetro se llama `onexc` desde Python 3.12 y `onerror` antes, y en
+    # 3.11 pasar `onexc` no es que se ignore: revienta con un TypeError que no
+    # es OSError y que por tanto no captura nadie. El mismo manejador sirve
+    # para los dos porque descarta el tercer argumento, que es lo único que
+    # cambia (la excepción suelta, o la terna de `sys.exc_info()`).
+    parametro = "onexc" if sys.version_info >= (3, 12) else "onerror"
     try:
-        shutil.rmtree(carpeta, onexc=reintentar)
+        shutil.rmtree(carpeta, **{parametro: reintentar})
     except OSError:
         pass
     return not Path(carpeta).exists()
