@@ -1,13 +1,15 @@
 """Dónde viven los datos, que no tiene por qué ser donde vive el código.
 
-Hay tres ubicaciones y **no son la misma cosa**, por mucho que por defecto
-cuelguen todas del repositorio:
+Hay cuatro ubicaciones y **no son la misma cosa**, por mucho que por defecto
+cuelguen del repositorio:
 
 - **El almacén** (`almacen.duckdb`): el estado. Irremplazable.
 - **Los documentos archivados**: los ficheros de origen y los justificantes,
   direccionados por su hash. También irremplazables.
 - **Las exportaciones**: vistas de consumo y salidas en parquet, CSV o xlsx.
   Son resultado, y se regeneran con `etl exportar` o `etl salida`.
+- **Los respaldos**: copias fechadas del estado, en parquet. Ver
+  `motor/respaldo.py`.
 
 Se configuran por separado porque sus requisitos son **opuestos**. El almacén
 no debe vivir en una carpeta sincronizada; las exportaciones a menudo sí, que
@@ -22,6 +24,19 @@ conflicto en vez de fusionar y mantiene handles que convierten un borrado
 normal en un «acceso denegado». Por eso `db migrar` avisa si el almacén o los
 documentos caen en una ruta con pinta de sincronizada — y no dice nada de las
 exportaciones.
+
+El respaldo es el tercer requisito, distinto de los otros dos: **quiere estar
+sincronizado, y además lejos del almacén**. Su aviso es por tanto el inverso,
+y vale con cumplir una de las dos condiciones (`aviso_de_respaldo`).
+
+## Por qué el respaldo no tiene valor por defecto
+
+Es el único de los cuatro que es opt-in, y a propósito. Los otros tres
+resuelven a una carpeta del repositorio, que es un sitio razonable para
+empezar. Para un respaldo no lo es: dejarlo junto al original no protege de
+nada, y una ruta que el framework se invente va a estar mal. Sin configurar,
+`db respaldar` no hace nada y dice cómo configurarlo — que es honesto, y
+además hace inocuo el hook que el repo distribuye.
 
 ## Precedencia
 
@@ -47,10 +62,12 @@ ROOT = Path(__file__).resolve().parent.parent
 FICHERO_CONFIG = ROOT / "config.local.json"
 
 # clave -> (variable de entorno, cómo se calcula el valor por defecto)
+# El respaldo devuelve None a propósito: es opt-in, ver el docstring del módulo.
 AJUSTES = {
     "datos": ("TOLVA_DATOS", lambda cfg: ROOT / "datos"),
     "documentos": ("TOLVA_DOCUMENTOS", lambda cfg: ruta("datos", cfg) / "documentos"),
     "export": ("TOLVA_EXPORT", lambda cfg: ROOT / "export"),
+    "respaldo": ("TOLVA_RESPALDO", lambda cfg: None),
 }
 
 # Solo el estado. Las exportaciones se quedan fuera a propósito: que estén en
@@ -87,17 +104,22 @@ def ruta(clave: str, cfg: dict = None) -> Path:
 def origen(clave: str, cfg: dict = None) -> str:
     """De dónde sale el valor. Para que `db rutas` pueda explicarlo: la mitad
     de los sustos con esto son 'creía que estaba mirando al otro almacén'."""
-    variable, _ = AJUSTES[clave]
+    variable, por_defecto = AJUSTES[clave]
     cfg = config() if cfg is None else cfg
     if os.environ.get(variable):
         return f"variable {variable}"
     if cfg.get(clave):
         return f"{FICHERO_CONFIG.name}"
-    return "valor por defecto"
+    # Un ajuste opt-in sin configurar no tiene «valor por defecto»: no hay
+    # valor. Decir que lo hay haría creer que la cosa está funcionando.
+    return "valor por defecto" if por_defecto(cfg) is not None else "sin configurar"
 
 
 def rutas_efectivas() -> dict:
-    """{clave: (ruta, origen)} de los tres ajustes, resueltos de una vez."""
+    """{clave: (ruta, origen)} de los cuatro ajustes, resueltos de una vez.
+
+    La ruta puede ser None si el ajuste es opt-in y nadie lo ha configurado.
+    """
     cfg = config()
     return {clave: (ruta(clave, cfg), origen(clave, cfg)) for clave in AJUSTES}
 
@@ -131,6 +153,8 @@ def carpeta_sincronizada(ruta_a_mirar: Path) -> str:
     Se mira la ruta entera y no solo el último tramo: lo habitual es que el
     sospechoso sea un ancestro (`C:/Users/x/OneDrive - empresa/repo/datos`).
     """
+    if ruta_a_mirar is None:
+        return None
     for parte in Path(ruta_a_mirar).resolve().parts:
         minuscula = parte.lower()
         if any(indicio in minuscula for indicio in INDICIOS_DE_SINCRONIZACION):
@@ -161,3 +185,47 @@ def aviso_de_sincronizacion() -> str:
         "  Para moverlo:  python -m motor.cli db init --datos C:/ruta/local\n"
         "  Y mueve a esa carpeta lo que ya tengas: el comando no copia nada."
     )
+
+
+def respaldo_a_salvo(cfg: dict = None) -> bool:
+    """Si el respaldo está en un sitio que sirve de respaldo.
+
+    La regla, que es la inversa de la de arriba: vale si **sale de la máquina**
+    (carpeta sincronizada) **o al menos sale del disco** (otra unidad). Con una
+    de las dos basta, y por eso una ruta que aquí sería un problema —dentro de
+    OneDrive— es justo la buena.
+
+    No se exige salir de la máquina porque no todo el mundo tiene sincronización
+    y un disco aparte ya cubre el fallo más probable, que es que muera el disco.
+    """
+    destino = ruta("respaldo", cfg)
+    if destino is None:
+        return False
+    if carpeta_sincronizada(destino):
+        return True
+    return Path(destino).drive.lower() != Path(ruta("datos", cfg)).drive.lower()
+
+
+def aviso_de_respaldo(cfg: dict = None) -> str:
+    """El texto del aviso sobre el respaldo, o None si no hay nada que decir.
+
+    Hay dos cosas distintas que avisar y no son el mismo problema: que no haya
+    respaldo configurado, y que lo haya pero en un sitio que no protege de nada.
+    """
+    cfg = config() if cfg is None else cfg
+    destino = ruta("respaldo", cfg)
+    if destino is None:
+        return (
+            "AVISO: no hay respaldo configurado, así que no se está respaldando nada.\n"
+            "  Para configurarlo:  python -m motor.cli db init --respaldo "
+            "'C:/Users/tu/OneDrive/Respaldo Tolva'\n"
+            "  Conviene que esté sincronizado (sale de la máquina) o al menos en otro disco."
+        )
+    if not respaldo_a_salvo(cfg):
+        return (
+            f"AVISO: el respaldo está en '{destino}', que no sale ni de la máquina ni del\n"
+            "  disco donde vive el almacén. Un respaldo que muere con el original no es un\n"
+            "  respaldo: si se te va el disco, se van los dos a la vez.\n"
+            "  Para moverlo:  python -m motor.cli db init --respaldo <carpeta sincronizada>"
+        )
+    return None

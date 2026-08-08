@@ -27,6 +27,16 @@ ver los valores por defecto y plantéale dos cosas:
 - Las **exportaciones** son el caso contrario: pregúntale si quiere que vayan
   a una carpeta compartida, porque suele ser justo lo que busca para abrirlas
   desde Excel o Power BI.
+- El **respaldo** hay que preguntarlo sí o sí, y es el único de los cuatro
+  ajustes que **no tiene valor por defecto**: si no se configura, no se
+  respalda nada y nadie se entera. Aquí la carpeta sincronizada es la
+  respuesta buena, al revés que en el almacén — el criterio es que salga de la
+  máquina, o al menos del disco. Si te dice que no quiere respaldos, déjalo
+  sin configurar y sigue: el hook de fin de sesión que trae el repo es inocuo
+  mientras no haya ruta.
+
+`db init` solo toca lo que le indiques, así que puedes fijar los ajustes en
+llamadas separadas sin miedo a desconfigurar los anteriores.
 
 Si acepta las rutas por defecto, no escribas `config.local.json`: un fichero de
 configuración que solo repite los valores por defecto es ruido que además hay
@@ -76,6 +86,11 @@ todavía no sabe qué puede pedir:
   que llega semanas más tarde queda junto a la foto del alta). Cada proceso
   declara cuánto conserva (`historial`), y purgar vacía los bytes pero nunca
   la ficha: se sigue sabiendo de qué fichero venía cada dato.
+- **El estado se respalda solo al cerrar la sesión**, en copias fechadas en
+  parquet con retención abuelo-padre-hijo (`db respaldar`, `db respaldos`).
+  Los documentos van a un espejo aparte que la retención nunca purga, porque
+  son lo único irrecuperable. Restaurar se hace a mano y con los pasos
+  delante: está en el manifiesto de cada copia.
 - **Todo lo decidido queda escrito** en `_decisiones` con su porqué, para que
   dentro de seis meses se sepa por qué `mes` es texto.
 - **Lo suyo va en `propio/`, que no sale del repositorio público**, y hay un
@@ -148,6 +163,13 @@ en vez de listarlos todos en el chat.
   lanza `documento purgar --aplicar`. Va en seco por defecto y borra los
   ficheros directamente, sin papelera. No la lances por iniciativa propia;
   propónsela al usuario y que decida.
+- **Restaurar no sustituye el almacén vivo, y por lo mismo:** `IMPORT DATABASE`
+  pisa lo que haya. `db restaurar --a <fichero nuevo>` hace la parte segura
+  (importa y verifica contra el manifiesto) y se niega a escribir sobre un
+  fichero existente. El cambiazo final lo da el usuario, no tú. El
+  procedimiento completo está en el README, en "Recuperar", y no acaba al
+  copiar ficheros: acaba comprobando que `db migrar` no ve nada pendiente y
+  que el CRUD responde contra lo recuperado.
 - **Nada de escribir volumen fila a fila.** DuckDB es columnar y degrada de
   forma no lineal con `INSERT` por fila: medido, 1.000 filas por SQL tardan
   ~13s frente a ~0,35s por 500.000 vía DataFrame. Usa

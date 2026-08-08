@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { \"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" -m motor.cli db respaldar --silencioso || \"$CLAUDE_PROJECT_DIR/.venv/bin/python\" -m motor.cli db respaldar --silencioso; }",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

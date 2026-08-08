@@ -9,6 +9,50 @@ falta. El **porqué** de cada decisión de modelo sí se conserva, pero no en es
 fichero: vive en la tabla `_decisiones` del propio almacén, junto a la
 migración que la tomó.
 
+## [0.5.0] — 2026-08-08
+
+### Añadido
+
+- **Respaldos**: `db respaldar` escribe un snapshot fechado del estado en
+  parquet (vía `EXPORT DATABASE`, autocontenido con su `schema.sql`), más una
+  copia de la capa propia y un manifiesto con versión de DuckDB, migraciones y
+  filas por tabla. `db respaldos` lista los que hay. Parquet y no una copia del
+  `.duckdb` porque el formato de fichero puede cambiar entre versiones mayores
+  de DuckDB, y un binario de 200 MB que no abre no es un respaldo — de paso
+  ocupa 21 veces menos.
+- **Cuarto ajuste, `respaldo`**, con `db init --respaldo` y `TOLVA_RESPALDO`.
+  Es el único **sin valor por defecto**: un respaldo junto al original no
+  protege de nada, y una ruta inventada por el framework va a estar mal.
+- **Aviso invertido para el respaldo**: vale si sale de la máquina (carpeta
+  sincronizada) o al menos del disco. Una ruta dentro de OneDrive, que en
+  `datos` dispara un OJO, aquí es la respuesta correcta.
+- **Hook `SessionEnd`** en `.claude/settings.json`: respalda al cerrar sesión
+  de Claude Code, sin arrancar una sesión de IA. Inocuo mientras `respaldo` no
+  esté configurado.
+- **`db restaurar`**: importa un snapshot a un almacén **nuevo** y verifica las
+  filas de cada tabla contra el manifiesto, enumerando los descuadres. Se niega
+  a escribir sobre un fichero existente. El paso destructivo —sustituir el
+  almacén vivo— sigue siendo manual a propósito. El procedimiento completo de
+  recuperación está en el README, y está ensayado de principio a fin contra un
+  respaldo real: restaurar, reponer documentos y capa propia, y comprobar que
+  el sistema opera contra lo recuperado.
+- **`config.local.json` entra en el snapshot** como informativo: es el único
+  sitio donde queda escrito dónde vivía cada cosa. No se restaura a ciegas,
+  porque en otra máquina esas rutas no existen.
+
+### Corregido
+
+- **`db init` ya no desconfigura los ajustes que no le indicas.** Mandaba
+  `None` por cada bandera ausente y `escribir_config` lee un valor presente y
+  vacío como «devuélvelo a su defecto», así que fijar una ruta devolvía las
+  otras a la carpeta del repo sin decir nada — el susto de «se han perdido los
+  datos» servido por el propio comando. Para limpiar un ajuste, ahora hay que
+  indicarlo vacío (`--export ""`).
+- **La poda de respaldos aguanta las carpetas sincronizadas.** Un fichero de
+  solo lectura se reintenta tras un `chmod`; un handle abierto por el cliente
+  de sincronización se cuenta y se reintenta en la siguiente pasada, en vez de
+  tumbar un respaldo que ya estaba escrito y era bueno.
+
 ## [0.4.0] — 2026-08-08
 
 ### Cambiado

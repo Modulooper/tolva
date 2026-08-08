@@ -1,4 +1,4 @@
-"""CLI: db migrar/consultar/diagrama/uso |
+"""CLI: db migrar/consultar/diagrama/uso/rutas/init/respaldar/respaldos/restaurar |
 etl definir/esquema/validar/dry-run/ejecutar/estado/exportar/salida |
 registro campos/crear/listar/editar/borrar (cualquier entidad del catálogo) |
 documento adjuntar/listar/purgar | proceso analizar.
@@ -26,6 +26,7 @@ from . import (
     motor_etl,
     perfil,
     registros,
+    respaldo,
     salidas,
     solapamiento,
     validaciones,
@@ -55,6 +56,13 @@ def _cmd_db_migrar(args: argparse.Namespace) -> int:
     aviso = entorno.aviso_de_sincronizacion()
     if aviso:
         print(aviso, file=sys.stderr)
+    # El respaldo es opt-in y no tiene valor por defecto, así que sin este
+    # aviso una instalación se queda sin respaldos sin que nada lo diga. Va
+    # aquí porque migrar es el momento en que alguien está montando la
+    # instalación — y, en una que ya existía, la primera vez que se entera.
+    aviso_respaldo = entorno.aviso_de_respaldo()
+    if aviso_respaldo:
+        print(aviso_respaldo, file=sys.stderr)
     try:
         aplicadas = db.migrar(con_ejemplos=args.con_ejemplos)
     except RuntimeError as exc:
@@ -73,14 +81,157 @@ def _cmd_db_rutas(_args: argparse.Namespace) -> int:
     'creía que estaba mirando al otro almacén'."""
     filas = []
     for clave, (ruta, origen) in entorno.rutas_efectivas().items():
-        sincronizada = entorno.carpeta_sincronizada(ruta)
         nota = ""
-        if sincronizada and clave in entorno.AJUSTES_QUE_NO_DEBEN_SINCRONIZARSE:
-            nota = f"OJO: dentro de '{sincronizada}'"
-        filas.append([clave, str(ruta), origen, nota])
+        if clave == "respaldo":
+            # El aviso del respaldo es el inverso del de los datos: aquí estar
+            # dentro de OneDrive es lo correcto. Ver motor/entorno.py.
+            if ruta is None:
+                nota = "OJO: no se está respaldando nada"
+            elif not entorno.respaldo_a_salvo():
+                nota = "OJO: ni sale de la máquina ni del disco del almacén"
+        else:
+            sincronizada = entorno.carpeta_sincronizada(ruta)
+            if sincronizada and clave in entorno.AJUSTES_QUE_NO_DEBEN_SINCRONIZARSE:
+                nota = f"OJO: dentro de '{sincronizada}'"
+        filas.append([clave, "—" if ruta is None else str(ruta), origen, nota])
     _imprimir_tabla(["ajuste", "ruta", "de dónde sale", ""], filas)
     print(f"\nPrecedencia: variable de entorno > {entorno.FICHERO_CONFIG.name} > valor por defecto")
-    print("Para fijarlos:  db init --datos <ruta> [--documentos <ruta>] [--export <ruta>]")
+    print("Para fijarlos:  db init --datos <ruta> [--documentos <ruta>] [--export <ruta>]"
+          " [--respaldo <ruta>]")
+    return 0
+
+
+def _cmd_db_respaldar(args: argparse.Namespace) -> int:
+    """Un snapshot fechado del estado, más la retención.
+
+    `--silencioso` calla **solo** el caso de «no hay respaldo configurado»,
+    que para el hook que dispara esto al cerrar sesión no es un fallo sino que
+    no hay nada que hacer. Un error de verdad se sigue viendo y sigue saliendo
+    con código distinto de cero: un respaldo que falla en silencio es peor que
+    no tener respaldo, porque encima da tranquilidad.
+    """
+    if entorno.ruta("respaldo") is None:
+        if args.silencioso:
+            return 0
+        print(entorno.aviso_de_respaldo(), file=sys.stderr)
+        return 1
+
+    aviso = entorno.aviso_de_respaldo()
+    if aviso:
+        print(aviso, file=sys.stderr)
+
+    try:
+        resultado = respaldo.respaldar()
+    except (ValueError, OSError, duckdb.Error) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    manifiesto = resultado["manifiesto"]
+    documentos = manifiesto["documentos"]
+    print(
+        f"Respaldo {resultado['carpeta'].name}: "
+        f"{manifiesto['bytes_respaldo'] / 1024 / 1024:.1f} MB, "
+        f"{len(manifiesto['filas'])} tablas, "
+        f"{sum(manifiesto['filas'].values()):,} filas"
+    )
+    print(
+        f"Documentos: {documentos['copiados']} nuevos al espejo, "
+        f"{documentos['ya_estaban']} ya estaban"
+    )
+    borrados = resultado["borrados_por_retencion"]
+    if borrados:
+        print(f"Retención: borrados {len(borrados)} ({', '.join(borrados)})")
+    tercos = resultado["no_borrados_por_retencion"]
+    if tercos:
+        # Sin ruido no se distingue de «no había nada que borrar», y una
+        # carpeta de respaldos que crece sin parar acaba llenando el disco.
+        print(
+            f"Retención: no se han podido borrar {len(tercos)} ({', '.join(tercos)}).\n"
+            "  Suele ser el cliente de sincronización con un handle abierto; se "
+            "reintenta en el siguiente respaldo.",
+            file=sys.stderr,
+        )
+    print(f"Quedan {resultado['snapshots']} snapshots en {entorno.ruta('respaldo')}")
+    return 0
+
+
+def _cmd_db_restaurar(args: argparse.Namespace) -> int:
+    """La mitad segura de una recuperación: importar a un fichero nuevo y
+    verificar. El paso destructivo —sustituir el almacén vivo— se queda a mano
+    a propósito, y aquí solo se explica."""
+    try:
+        snapshot = respaldo.resolver_snapshot(args.snapshot)
+        resultado = respaldo.restaurar(snapshot, args.a)
+    except (ValueError, OSError, duckdb.Error) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Restaurado {snapshot.name} -> {resultado['destino']}")
+    print(
+        f"  {len(resultado['filas'])} tablas, {sum(resultado['filas'].values()):,} filas, "
+        f"{len(resultado['vistas'])} vistas"
+    )
+
+    if not resultado["manifiesto"].get("filas"):
+        print(
+            "  AVISO: sin manifiesto legible no se ha podido verificar nada. Los datos\n"
+            "  están importados, pero que estén completos es una suposición.",
+            file=sys.stderr,
+        )
+    elif resultado["verificado"]:
+        print("  Verificado: las filas por tabla cuadran con el manifiesto.")
+    else:
+        for descuadre in resultado["descuadres"]:
+            print(
+                f"  DESCUADRE {descuadre['tabla']}: manifiesto {descuadre['esperadas']}, "
+                f"restauradas {descuadre['restauradas']}",
+                file=sys.stderr,
+            )
+        for tabla in resultado["tablas_ausentes"]:
+            print(f"  FALTA la tabla {tabla}", file=sys.stderr)
+        return 1
+
+    print("\nLo que queda, y va a mano a propósito:")
+    print(f"  - Documentos: copia '{snapshot.parent / 'documentos'}' a {entorno.ruta('documentos')}")
+    if resultado["manifiesto"].get("propio"):
+        print(f"  - Capa propia: copia '{snapshot / 'propio'}' al repositorio")
+    print("  - Sustituir el almacén vivo por este, cuando lo hayas comprobado.")
+    return 0
+
+
+def _cmd_db_respaldos(_args: argparse.Namespace) -> int:
+    """Qué respaldos hay. Un respaldo que nadie ha mirado nunca es una
+    suposición, no una copia."""
+    base = entorno.ruta("respaldo")
+    if base is None:
+        print(entorno.aviso_de_respaldo(), file=sys.stderr)
+        return 1
+
+    filas = []
+    for snapshot in respaldo.snapshots(base):
+        try:
+            manifiesto = json.loads((snapshot / "manifiesto.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            # Un snapshot sin manifiesto legible se lista igual, marcado: es
+            # justo el que hay que mirar, y ocultarlo no lo arregla.
+            filas.append([snapshot.name, "?", "?", "?", "manifiesto ilegible"])
+            continue
+        filas.append([
+            snapshot.name,
+            manifiesto.get("creado", "?"),
+            str(len(manifiesto.get("filas", {}))),
+            f"{sum(manifiesto.get('filas', {}).values()):,}",
+            f"{manifiesto.get('bytes_respaldo', 0) / 1024 / 1024:.1f} MB",
+        ])
+    _imprimir_tabla(["snapshot", "creado", "tablas", "filas", "tamaño"], filas)
+    espejo = base / "documentos"
+    if espejo.is_dir():
+        ficheros = [f for f in espejo.rglob("*") if f.is_file()]
+        total = sum(f.stat().st_size for f in ficheros)
+        print(
+            f"\nEspejo de documentos: {len(ficheros)} ficheros, "
+            f"{total / 1024 / 1024:.1f} MB (compartido, fuera de la retención)"
+        )
     return 0
 
 
@@ -91,8 +242,23 @@ def _cmd_db_init(args: argparse.Namespace) -> int:
     los datos existentes es del usuario, a propósito — copiarlos por su cuenta
     dejaría dos almacenes divergiendo sin que nadie avise.
     """
-    valores = {"datos": args.datos, "documentos": args.documentos, "export": args.export}
-    if not any(valores.values()):
+    # Dos cosas, y las dos han mordido:
+    #
+    # Se recorre AJUSTES en vez de enumerar las claves a mano, porque
+    # enumerarlas dejó `--respaldo` sin cablear al añadirlo.
+    #
+    # Y solo entra lo que se ha indicado de verdad. Antes se mandaba None por
+    # cada ajuste ausente, y `escribir_config` trata un valor presente y vacío
+    # como «devuélvelo a su defecto»: fijar una ruta desconfiguraba las otras
+    # tres sin decir nada, que es exactamente el susto de «se han perdido los
+    # datos» del que avisa motor/entorno.py. `--datos ""` sigue limpiando el
+    # ajuste, porque eso sí es indicarlo.
+    valores = {
+        clave: getattr(args, clave)
+        for clave in entorno.AJUSTES
+        if getattr(args, clave, None) is not None
+    }
+    if not valores:
         print(
             "No has indicado ninguna ruta. Los valores por defecto ya funcionan;\n"
             "usa `db rutas` para verlos y `db init --datos <ruta>` para cambiarlos.",
@@ -645,6 +811,23 @@ def main(argv=None) -> int:
     init_parser.add_argument("--documentos", default=None,
                              help="Carpeta de documentos archivados (por defecto, dentro de --datos)")
     init_parser.add_argument("--export", default=None, help="Carpeta de exportaciones y salidas")
+    init_parser.add_argument("--respaldo", default=None,
+                             help="Carpeta de respaldos (sin valor por defecto: es opt-in)")
+
+    respaldar_parser = db_sub.add_parser("respaldar", help="Snapshot fechado del estado y retención")
+    respaldar_parser.add_argument(
+        "--silencioso", action="store_true",
+        help="Sin respaldo configurado, salir en silencio (para el hook de fin de sesión)",
+    )
+    db_sub.add_parser("respaldos", help="Qué respaldos hay")
+
+    restaurar_parser = db_sub.add_parser(
+        "restaurar", help="Importa un respaldo a un almacén NUEVO y lo verifica")
+    restaurar_parser.add_argument(
+        "snapshot", nargs="?", default=None,
+        help="Nombre o ruta del snapshot (por defecto, el más reciente)")
+    restaurar_parser.add_argument(
+        "--a", required=True, help="Fichero .duckdb nuevo; se niega a pisar uno existente")
 
     migrar_parser = db_sub.add_parser("migrar", help="Aplica migraciones pendientes")
     migrar_parser.add_argument("--con-ejemplos", action="store_true",
@@ -765,6 +948,12 @@ def main(argv=None) -> int:
             return _cmd_db_rutas(args)
         if args.command == "init":
             return _cmd_db_init(args)
+        if args.command == "respaldar":
+            return _cmd_db_respaldar(args)
+        if args.command == "respaldos":
+            return _cmd_db_respaldos(args)
+        if args.command == "restaurar":
+            return _cmd_db_restaurar(args)
         if args.command == "consultar":
             return _cmd_db_consultar(args)
         if args.command == "uso":

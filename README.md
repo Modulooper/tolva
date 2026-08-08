@@ -200,19 +200,26 @@ vía pensada ni probada para este proyecto.
 
 ## Dónde viven los datos
 
-Tres ubicaciones, y **no son la misma cosa** por mucho que por defecto cuelguen
-todas del repositorio:
+Cuatro ubicaciones, y **no son la misma cosa** por mucho que por defecto
+cuelguen del repositorio:
 
 | Ajuste | Qué guarda | Por defecto | Naturaleza |
 |---|---|---|---|
 | `datos` | `almacen.duckdb` | `datos/` | estado, irremplazable |
 | `documentos` | ficheros de origen y justificantes | `<datos>/documentos` | estado, irremplazable |
 | `export` | vistas y salidas (parquet, csv, xlsx) | `export/` | resultado, regenerable |
+| `respaldo` | copias fechadas del estado | **ninguno** (opt-in) | seguro, ver [Respaldos](#respaldos) |
 
 ```bash
 python -m motor.cli db rutas                        # dónde está cada cosa y por qué
-python -m motor.cli db init --datos C:/datos/schemate
+python -m motor.cli db init --datos C:/datos/tolva
 ```
+
+`respaldo` es el único sin valor por defecto, y a propósito: los otros tres
+resuelven a una carpeta del repositorio, que es un sitio razonable para
+empezar; para un respaldo no lo es, porque dejarlo junto al original no
+protege de nada y una ruta que el framework se invente va a estar mal. Sin
+configurar, `db respaldar` no hace nada y dice cómo configurarlo.
 
 `db init` **no mueve nada**: solo declara dónde debe mirar el sistema. Si ya
 tenías datos, muévelos tú — y mueve, no copies: dos almacenes divergiendo no
@@ -226,14 +233,18 @@ variable de entorno  >  config.local.json  >  valor por defecto
 
 El fichero (que escribe `db init`, y está en `.gitignore` porque es de tu
 máquina) fija la instalación. Las variables `TOLVA_DATOS`,
-`TOLVA_DOCUMENTOS` y `TOLVA_EXPORT` quedan para lo puntual: lanzar una
-carga contra otro almacén, o enrutar por usuario.
+`TOLVA_DOCUMENTOS`, `TOLVA_EXPORT` y `TOLVA_RESPALDO` quedan para lo puntual:
+lanzar una carga contra otro almacén, o enrutar por usuario.
+
+`db init` solo toca los ajustes que le indiques: fijar uno no desconfigura los
+demás. Para devolver uno a su valor por defecto, indícalo vacío
+(`--export ""`).
 
 El orden no es arbitrario. Si solo hubiera variable de entorno, se pone en una
 terminal, la siguiente sesión no la ve, se crea un almacén vacío **sin
 quejarse** y parece que se han perdido los datos. El fichero no se olvida.
 
-### Por qué son tres ajustes y no uno
+### Por qué son cuatro ajustes y no uno
 
 Porque sus requisitos son opuestos.
 
@@ -257,6 +268,118 @@ otra máquina. Son ficheros cerrados y regenerables.
 Por eso `db migrar` y `db rutas` avisan si el almacén o los documentos caen en
 una ruta con pinta de sincronizada, y **no dicen nada de las exportaciones**.
 Es heurística sobre nombres de carpeta: avisa, nunca impide.
+
+**El respaldo es el tercer requisito, y su aviso es el inverso**: quiere estar
+sincronizado *y* lejos del almacén. La regla es que vale si **sale de la
+máquina** (carpeta sincronizada) **o al menos sale del disco** (otra unidad);
+con una de las dos basta. Así que una ruta dentro de OneDrive, que en `datos`
+dispara un OJO, aquí es justo la respuesta buena. Lo que avisa es el caso
+contrario: un respaldo en el mismo disco y sin sincronizar muere con el
+original.
+
+No se exige salir de la máquina porque no todo el mundo tiene sincronización,
+y un disco aparte ya cubre el fallo más probable, que es que muera el disco.
+
+## Respaldos
+
+```bash
+python -m motor.cli db init --respaldo "C:/Users/tu/OneDrive/Respaldo Tolva"
+python -m motor.cli db respaldar     # snapshot fechado + retención
+python -m motor.cli db respaldos     # qué copias hay
+```
+
+Cada snapshot es una carpeta `AAAAMMDD-HHMMSS` con el estado en **parquet**
+(vía `EXPORT DATABASE`, que incluye `schema.sql` y `load.sql`, o sea que es
+autocontenido), una copia de la capa propia y un `manifiesto.json` con la
+versión de DuckDB, las migraciones aplicadas y las filas por tabla.
+
+**Parquet y no una copia del `.duckdb`.** Medido sobre un almacén real: 190,8
+MB de `.duckdb` contra 8,9 MB de parquet+zstd, en 0,3 s. Pero lo que decide no
+es el tamaño, es que el formato de fichero de DuckDB puede cambiar entre
+versiones mayores —por eso `requirements.txt` fija `<2.0`— y un binario de 200
+MB que dentro de tres años no abre no es un respaldo.
+
+**Los documentos van fuera del snapshot**, en un espejo incremental en
+`<respaldo>/documentos`. Están direccionados por su SHA-256, o sea que son
+inmutables: meterlos en cada copia guardaría N veces los mismos bytes. Cada
+snapshot los referencia por hash desde su `_documentos.parquet`.
+
+**Retención abuelo-padre-hijo**: 7 diarios, 8 semanales y 12 mensuales. De
+cada cubo temporal sobrevive el más reciente, y un mismo snapshot puede ocupar
+las tres plazas, que es lo que hace que el esquema se estabilice en vez de
+crecer. **La retención no toca nunca los documentos**: son lo único
+genuinamente irrecuperable —el resto de tablas se puede volver a cargar desde
+ellos—, así que purgarlos para ahorrar disco sería el error que todo esto
+existe para evitar.
+
+### Automatizarlo
+
+El repo trae un hook `SessionEnd` en `.claude/settings.json` que lanza
+`db respaldar --silencioso` al cerrar una sesión de Claude Code. Lo ejecuta el
+propio harness, sin arrancar ninguna sesión de IA: no cuesta tokens. Es inocuo
+mientras no configures `respaldo`, que es la razón de que ese ajuste sea
+opt-in.
+
+`--silencioso` calla **solo** el caso de «no hay respaldo configurado». Un
+error de verdad se sigue viendo y sigue saliendo con código distinto de cero:
+un respaldo que falla en silencio es peor que no tener respaldo, porque encima
+da tranquilidad.
+
+Si trabajas mucho fuera de Claude Code, añade encima una tarea programada del
+sistema con el mismo comando. Son compatibles.
+
+### Recuperar
+
+Un respaldo que nadie ha restaurado nunca es una suposición. El procedimiento
+de abajo está **ensayado de principio a fin** contra un respaldo real, no
+deducido.
+
+`db restaurar` hace la mitad segura —importar a un fichero nuevo y verificar
+contra el manifiesto—, y **se niega a escribir sobre un almacén que ya
+exista**: `IMPORT DATABASE` pisa lo que haya, y el momento de recuperar es
+justo cuando menos margen hay para un error irreversible. El paso destructivo
+(sustituir el almacén vivo) se queda a mano, igual que `db init` no mueve nada
+y la purga de documentos no se ejecuta sola.
+
+**Lo que necesitas para recuperar desde cero**: este repositorio (es código,
+va por git), Python con `requirements.txt`, y la carpeta de respaldos.
+
+```bash
+# 1. El framework y su entorno
+git clone <el repo> && cd tolva
+python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt
+
+# 2. El estado, a un fichero NUEVO. Sin argumento coge el snapshot más reciente.
+python -m motor.cli db respaldos                       # ver qué hay
+python -m motor.cli db restaurar --a C:/Tolva/almacen.duckdb
+```
+
+`db restaurar` importa, cuenta las filas de cada tabla y las compara con el
+manifiesto. Si cuadran lo dice; si no, enumera cada descuadre y sale con
+código distinto de cero. También recupera las **vistas de consumo**, que van
+en el `schema.sql` del export.
+
+```bash
+# 3. Lo que no está en el almacén, y va a mano
+#    - <respaldo>/documentos     -> la carpeta que diga `db rutas`
+#    - <snapshot>/propio         -> propio/ del repositorio
+#    - <snapshot>/config.local.json es INFORMATIVO: dice dónde vivía cada cosa
+#      en la máquina original. En otra máquina esas rutas no existen.
+
+# 4. Comprobar que el sistema funciona contra lo recuperado, no solo que los
+#    ficheros están:
+python -m motor.cli db migrar          # debe decir "No hay migraciones pendientes"
+python -m motor.cli registro listar <una entidad>
+python -m motor.cli documento listar   # deben salir 'disponible'
+```
+
+El paso 4 es el que convierte «he copiado unos ficheros» en «he recuperado el
+sistema». Que `db migrar` no encuentre nada pendiente demuestra que
+`_migraciones` viajó entera y que el framework reconoce el almacén como suyo.
+
+Y como los documentos se guardan bajo el nombre de su SHA-256, la integridad
+se puede comprobar sin fiarse de nadie: recalcula el hash de cada fichero y
+compáralo con su propio nombre.
 
 ## Núcleo y capa propia
 

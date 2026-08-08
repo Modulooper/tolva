@@ -1,5 +1,7 @@
 """Dónde viven los datos: precedencia, fichero de configuración y avisos."""
 
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -133,6 +135,48 @@ class PruebaAvisoDeSincronizacion(BaseEntorno):
             "export": str(Path.home() / "OneDrive" / "export"),
         }, self.config)
         self.assertIsNone(entorno.aviso_de_sincronizacion())
+
+
+class PruebaDbInit(BaseEntorno):
+    """El comando, no solo la función que escribe."""
+
+    def _init(self, *argv):
+        from motor import cli
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            return cli.main(["db", "init", *argv])
+
+    def test_fijar_un_ajuste_no_desconfigura_los_demas(self):
+        """Fue un fallo de verdad: `db init` mandaba None por cada ajuste no
+        indicado y `escribir_config` lee un valor presente y vacío como
+        'devuélvelo a su defecto'. Fijar el respaldo devolvía el almacén a la
+        carpeta del repo sin decir nada — el susto de 'se han perdido los
+        datos' del docstring de este módulo, servido por el propio comando."""
+        self.assertEqual(self._init("--datos", "/local"), 0)
+        self.assertEqual(self._init("--respaldo", "/copias"), 0)
+        guardado = json.loads(self.config.read_text(encoding="utf-8"))
+        self.assertEqual(
+            {clave: Path(valor) for clave, valor in guardado.items()},
+            {"datos": Path("/local"), "respaldo": Path("/copias")},
+        )
+
+    def test_cada_ajuste_tiene_su_bandera(self):
+        """Las banderas se derivan de AJUSTES; añadir uno y olvidar cablearlo
+        daba un 'no has indicado ninguna ruta' habiéndola indicado."""
+        for clave in entorno.AJUSTES:
+            with self.subTest(ajuste=clave):
+                self.assertEqual(self._init(f"--{clave}", "/x"), 0)
+                self.assertIn(clave, entorno.config(self.config))
+
+    def test_sin_banderas_no_escribe_nada(self):
+        self.assertEqual(self._init(), 1)
+        self.assertFalse(self.config.exists())
+
+    def test_una_ruta_vacia_si_limpia_el_ajuste(self):
+        """Indicarlo vacío es indicarlo: es la vía para volver al defecto."""
+        self._init("--datos", "/local")
+        self._init("--datos", "")
+        self.assertNotIn("datos", entorno.config(self.config))
 
 
 class PruebaCableado(unittest.TestCase):
