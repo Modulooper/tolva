@@ -661,20 +661,24 @@ a mano con `etl salida <carga> [--nombre <salida>]`.
 ```json
 "salidas": [
   {
-    "nombre": "resumen_delegacion",
-    "fichero": "%Y%m%d_previ_ok.xlsx",
-    "sql": "SELECT deleg_nombre, anio, mes, count(*) AS lineas, sum(coste_ventilado) AS coste FROM previ_transporte GROUP BY 1,2,3",
+    "nombre": "ventas_por_genero",
+    "fichero": "%Y%m%d_demo_ventas_por_genero.xlsx",
+    "sql": "SELECT l.genero, sum(v.unidades) AS unidades, round(sum(v.importe), 2) AS importe FROM demo_venta v JOIN demo_libro l ON l.id = v.demo_libro_id GROUP BY l.genero ORDER BY importe DESC",
     "carpeta": "export"
   }
 ]
 ```
 
+Ese ejemplo no es inventado: es la salida que declara
+[`ejemplos/cargas/demo_ventas.json`](ejemplos/cargas/demo_ventas.json), así que
+se puede ejecutar tras `db migrar --con-ejemplos`.
+
 - **Formato** por extensión: `.xlsx`, `.csv` o `.parquet`. Siempre con fila de
   cabecera.
 - **Nombre**: admite marcas de fecha de strftime (`%Y%m%d` → `20260805`,
   `%Y%m` → `202608`) y campos entre llaves de la ejecución: `{carga}` y
-  `{ejecucion_id}`. Ej.: `"%Y%m%d_previ_detalle_{ejecucion_id}.csv"` →
-  `20260805_previ_detalle_11.csv`.
+  `{ejecucion_id}`. Ej.: `"%Y%m%d_demo_detalle_{ejecucion_id}.csv"` →
+  `20260805_demo_detalle_11.csv`.
 - **`carpeta`** es opcional; por defecto `/export`.
 
 Se generan con la carga ya confirmada: escribir un fichero no puede deshacer
@@ -839,7 +843,48 @@ así que el escaneo ya es rápido; los índices ART sirven para lookups muy
 selectivos y para restricciones `UNIQUE`, y penalizan la escritura — mal
 negocio en tablas que se recargan enteras en cada carga.
 
-## Lectura de ficheros xlsx
+## Lectura de ficheros: CSV y xlsx
+
+Una carga declara su `formato`, que solo puede ser `"csv"` o `"excel"`. **CSV
+es el caso normal**; xlsx es el que necesita cuidados, y por eso ocupa más
+sitio aquí abajo. Que se explique más no quiere decir que sea el camino
+principal: la carga de ejemplo del repo es CSV, y también lo es buena parte de
+la batería de pruebas.
+
+### CSV
+
+```json
+"formato": "csv",
+"delimitador": ";",
+"encoding": "utf-8",
+"fila_cabecera": 1
+```
+
+- **`delimitador` es obligatorio** con `formato: "csv"`, y `etl validar` lo
+  rechaza si falta. No se adivina a propósito: media Europa exporta con `;` y
+  la otra media con `,`, y acertar por defecto el 50% de las veces significa
+  partir mal las filas el otro 50% **sin error**, que es peor que no cargar.
+- **`encoding`** por defecto es `utf-8-sig`, que se traga el BOM que ponen
+  Excel y muchos exportadores de banca. Para ficheros que no vengan en UTF-8,
+  declara el suyo (`latin-1`, `cp1252`).
+- **`fila_cabecera`** por si el fichero trae líneas de título antes de los
+  nombres de columna.
+
+Los valores se leen **como texto**, y es el mapping declarado —no el lector—
+quien decide los tipos. Así un mes `"03"` sigue siendo `"03"` hasta que alguien
+diga qué es, en vez de convertirse en el número 3 y perder el cero.
+
+[`ejemplos/cargas/demo_ventas.json`](ejemplos/cargas/demo_ventas.json) es una
+carga CSV completa y ejecutable: delimitador `;`, tabla hall con join contra
+dimensiones, singularidad por cuatro campos, un stop, una alarma y una salida.
+
+Para perfilar un fichero de muestra antes de declarar nada:
+
+```bash
+python -m motor.cli etl definir extracto.csv --formato csv --delimitador ";"
+```
+
+### xlsx
 
 Los xlsx los lee la extensión `excel` de DuckDB (`read_xlsx` con
 `all_varchar=true`), tanto al cargar como al perfilar. Con openpyxl como
