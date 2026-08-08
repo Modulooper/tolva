@@ -39,6 +39,25 @@ migración que la tomó.
 - **`config.local.json` entra en el snapshot** como informativo: es el único
   sitio donde queda escrito dónde vivía cada cosa. No se restaura a ciegas,
   porque en otra máquina esas rutas no existen.
+- **`README.en.md`**: versión corta en inglés. Corta y no una traducción
+  paralela a propósito — duplicar 900 líneas obliga a hacer cada mejora dos
+  veces y acaba dando dos documentos que dicen cosas distintas.
+
+### Documentación
+
+- **La lectura de CSV pasa a estar documentada.** La sección de lectura de
+  ficheros solo hablaba de xlsx, así que parecía que CSV no estaba soportado
+  cuando es al revés: es el formato de la carga de ejemplo y el que ejercita
+  la mayoría de la batería. Incluye lo que antes solo se descubría cuando
+  `etl validar` lo tiraba: `delimitador` es obligatorio en CSV, y no se
+  adivina porque acertar el separador la mitad de las veces significa partir
+  mal las filas la otra mitad **sin dar error**.
+- El ejemplo de `salidas` pasa a usar el dominio de ejemplo, que además es
+  ejecutable. Con eso salen de la documentación los nombres de columna de un
+  proceso real, que no pintaban nada en un framework que dice separar el
+  núcleo de las cargas de cada uno.
+- Borrado `attach_test/`: tres `.duckdb` de datos dummy sobre una tabla que el
+  núcleo no tiene desde el hito 25.
 
 ### Corregido
 
