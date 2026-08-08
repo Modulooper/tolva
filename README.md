@@ -1,5 +1,8 @@
 # Tolva
 
+*English: [README.en.md](README.en.md) — short version. This page is the full
+documentation, in Spanish.*
+
 > *Tolva*: la boca por la que entra el material en una máquina.
 
 **Por donde entran tus datos, y con la que se habla.** Le cuentas qué te llega;
