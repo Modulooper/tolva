@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 12 243 68" width="243" height="68" role="img" aria-labelledby="t">
+  <title id="t">Tolva</title>
+  <g fill="none" stroke="#F2EFE9" stroke-width="9.5" stroke-linecap="butt">
+    <path d="M24 14V78"/>
+    <path d="M2 18.75H46"/>
+    <circle cx="72" cy="56" r="17.25"/>
+    <path d="M118.75 14V78"/>
+    <circle cx="219" cy="56" r="17.25"/>
+    <path d="M236.25 34V78"/>
+  </g>
+  <path fill="none" stroke="#F0A83C" stroke-width="9.5" stroke-linecap="butt" stroke-linejoin="bevel" d="M139 34 161 75.7 183 34"/>
+</svg>
