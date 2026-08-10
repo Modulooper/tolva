@@ -75,7 +75,7 @@ De ahí sale una migración, una ficha de catálogo y una entrada en
 [Claude Code](https://claude.com/claude-code) y pídeselo con tus palabras:
 
 ```
-> clona <url-del-repo>, instálalo y enséñame el ejemplo
+> instálame esto y enséñame el ejemplo: https://github.com/Modulooper/tolva.git
 ```
 
 Se ocupa de lo mecánico —entorno, dependencias, migraciones— y te pregunta lo
@@ -98,7 +98,7 @@ esquema antes de tocar nada.
 Requisitos: Python 3.11+ y Git.
 
 ```bash
-git clone <url-del-repo>
+git clone https://github.com/Modulooper/tolva.git
 cd tolva
 python -m venv .venv && source .venv/Scripts/activate
 pip install -r requirements.txt
@@ -134,7 +134,7 @@ Escribe a modulooper@gmail.com y se coordina el arreglo antes de publicarlo.
 Requisitos: Python 3.11+ y Git.
 
 ```bash
-git clone <url-del-repo>
+git clone https://github.com/Modulooper/tolva.git
 cd tolva
 
 python -m venv .venv
@@ -373,7 +373,7 @@ va por git), Python con `requirements.txt`, y la carpeta de respaldos.
 
 ```bash
 # 1. El framework y su entorno
-git clone <el repo> && cd tolva
+git clone https://github.com/Modulooper/tolva.git && cd tolva
 python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt
 
 # 2. El estado, a un fichero NUEVO. Sin argumento coge el snapshot más reciente.

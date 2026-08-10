@@ -80,7 +80,7 @@ recording *why* — so that in six months the reason is still there.
 [Claude Code](https://claude.com/claude-code) and ask in your own words:
 
 ```
-> clone <repo-url>, install it and show me the example
+> install this for me and show me the example: https://github.com/Modulooper/tolva.git
 ```
 
 It handles the mechanical part — environment, dependencies, migrations — and
@@ -103,7 +103,7 @@ propose a schema before touching anything.
 Requirements: Python 3.11+ and Git.
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/Modulooper/tolva.git
 cd tolva
 python -m venv .venv && source .venv/Scripts/activate
 pip install -r requirements.txt
