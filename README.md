@@ -71,6 +71,32 @@ De ahí sale una migración, una ficha de catálogo y una entrada en
 
 ## Pruébalo en dos minutos
 
+**No hace falta saber Python.** Abre una carpeta vacía con
+[Claude Code](https://claude.com/claude-code) y pídeselo con tus palabras:
+
+```
+> clona <url-del-repo>, instálalo y enséñame el ejemplo
+```
+
+Se ocupa de lo mecánico —entorno, dependencias, migraciones— y te pregunta lo
+único que no puede decidir por ti: dónde deben vivir tus datos y si quieres
+respaldo. Acaba ejecutando una carga real de principio a fin —fichero,
+transformación, una regla que salta a propósito y una salida en xlsx— sobre un
+dominio de ejemplo: una librería inventada, con datos dummy.
+
+Tu instalación arranca vacía: el framework **no crea ninguna tabla de
+negocio**.
+
+A partir de ahí ya no hay instalación, hay conversación: cuéntale qué quieres
+llevar. Las skills que guían esa parte (`definir-carga`, `crear-proceso`)
+vienen en el repositorio y son el diferencial del proyecto: perfilan el
+fichero, comprueban solapamiento contra el catálogo semántico y proponen
+esquema antes de tocar nada.
+
+### O instálalo desde la consola
+
+Requisitos: Python 3.11+ y Git.
+
 ```bash
 git clone <url-del-repo>
 cd tolva
@@ -82,14 +108,8 @@ python -m motor.cli registro listar demo_venta
 python -m motor.cli etl ejecutar demo_ventas
 ```
 
-Eso instala un dominio de ejemplo —una librería inventada, con datos dummy— y
-ejecuta una carga real de principio a fin: fichero, transformación, reglas que
-saltan y salida en xlsx. Tu instalación arranca vacía: el framework **no crea
-ninguna tabla de negocio**.
-
-Para trabajar con ello de verdad, ábrelo con [Claude Code](https://claude.com/claude-code)
-y cuéntale qué quieres llevar. El repositorio incluye las skills que guían la
-conversación.
+Mismo resultado, y la instalación completa —con las cuatro rutas y por qué
+importan— está en [Instalación](#instalación).
 
 ## Dudas, fallos y contribuciones
 
@@ -167,21 +187,25 @@ flujo conversacional conduzca bien, que los mensajes de error sirvan para
 corregir, que la semántica de la singularidad sea la que esperas, y que los
 ficheros exportados abran bien desde Excel o Power BI.
 
-### Instalación asistida por IA
+### Qué asistente hace falta
 
-Este repo incluye skills de Claude Code en `.claude/skills/` (`definir-carga`,
-`crear-proceso`) que son el diferencial del proyecto: perfilan ficheros,
-comprueban solapamiento contra el catálogo semántico y proponen esquema antes
-de tocar nada. Para que la instalación completa (clonar, crear venv, instalar
-dependencias, migrar, y luego usar esos skills) la haga la IA sola, hace falta
-**Claude Code** (la CLI), no Claude Desktop/claude.ai: Code tiene acceso
-directo a terminal y sistema de ficheros locales, que es lo que requieren los
-pasos de arriba y lo que activa `.claude/skills/` automáticamente al abrir el
-repo. Claude Desktop, sin un MCP de terminal/filesystem conectado, no puede
+Para que la instalación conversacional de arriba (clonar, crear venv, instalar
+dependencias, migrar, y luego usar los skills de `.claude/skills/`) la haga la
+IA sola, hace falta **Claude Code** (la CLI), no Claude Desktop/claude.ai:
+Code tiene acceso directo a terminal y sistema de ficheros locales, que es lo
+que requieren los pasos de arriba y lo que activa `.claude/skills/`
+automáticamente al abrir el repo. Claude Desktop, sin un MCP de terminal/filesystem conectado, no puede
 ejecutar `git clone`, `pip install` ni `python -m motor.cli` — como mucho
 podría leer este README y devolver los pasos en texto para que los ejecutes
 tú. Con un MCP de ese tipo configurado sí podría, en teoría, pero no es la
 vía pensada ni probada para este proyecto.
+
+Con otro asistente de código con terminal (Codex CLI, Copilot en modo agente,
+Cursor) el framework funciona igual —es Python y DuckDB, sin dependencias de
+LLM—, pero esos tres automatismos no los hay: cargar las instrucciones,
+invocar los skills en el momento justo y respaldar al cerrar. [AGENTS.md](AGENTS.md)
+es el adaptador que los suple, y no duplica nada: apunta a este README, a
+[CLAUDE.md](CLAUDE.md) y a los dos skills.
 
 ## Estructura
 

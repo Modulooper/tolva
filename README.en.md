@@ -76,6 +76,30 @@ recording *why* — so that in six months the reason is still there.
 
 ## Try it in two minutes
 
+**You don't need to know Python.** Open an empty folder with
+[Claude Code](https://claude.com/claude-code) and ask in your own words:
+
+```
+> clone <repo-url>, install it and show me the example
+```
+
+It handles the mechanical part — environment, dependencies, migrations — and
+asks you the one thing it can't decide for you: where your data should live,
+and whether you want backups. It ends by running a real load end to end —
+file, transformation, a rule that fires on purpose, and an xlsx output — over
+an example domain: an invented bookshop, with dummy data.
+
+Your own installation starts empty: the core **creates no business tables at
+all**.
+
+From there on there's no installation, just conversation: tell it what you
+want to track. The skills that steer that part (`definir-carga`,
+`crear-proceso`) ship with the repository and are what the project is really
+about: they profile the file, check overlap against the semantic catalogue and
+propose a schema before touching anything.
+
+### Or from the console
+
 Requirements: Python 3.11+ and Git.
 
 ```bash
@@ -89,17 +113,8 @@ python -m motor.cli registro listar demo_venta
 python -m motor.cli etl ejecutar demo_ventas
 ```
 
-That installs an example domain — an invented bookshop, with dummy data — and
-runs a real load end to end: file, transformation, rules firing, and an xlsx
-output. Your own installation starts empty: the core **creates no business
-tables at all**.
-
 On Windows PowerShell use `.venv\Scripts\Activate.ps1`; on macOS/Linux,
 `source .venv/bin/activate`.
-
-To actually work with it, open the repo with
-[Claude Code](https://claude.com/claude-code) and tell it what you want to
-track. The skills that steer the conversation ship with the repository.
 
 ## Where your data lives
 
