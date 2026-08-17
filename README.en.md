@@ -11,11 +11,18 @@ already had tooling. This one is about the start: **ingestion**.
 
 With one rule that isn't negotiable: **the AI is in the design, not in the
 execution.** The conversation produces a config file; from then on it's plain
-SQL running on its own, identically every month. **No model ever touches a row
-of your data.**
+SQL running on its own, identically every month. **No model ever touches a
+load.**
 
 Local, single-user, self-contained, on DuckDB. No server, no auth, no cloud.
 Everything lives in one file on your disk.
+
+> **The first conversation is the exception.** To propose a schema, something
+> has to look at your file: the assistant gets the column names and **a sample
+> of real values** from each one. That leaves your machine, to wherever the
+> model runs. Never again after that. See [What the assistant
+> sees](#what-the-assistant-sees) before your first load if the file holds data
+> that can't leave.
 
 > **A note on language.** The documentation, the CLI verbs and the config keys
 > are in Spanish. This matters less than it looks: you don't write the config,
@@ -127,6 +134,30 @@ them; and **backups** want to be synced *and* far from the store.
 ```bash
 python -m motor.cli db rutas    # where everything is, and why
 ```
+
+## What the assistant sees
+
+The split isn't obvious, so it's worth being clear before your first load:
+**design sees a sample, execution sees nothing.**
+
+**Leaves your machine**, once, when defining the load or the process: the file
+name and its column names; per column, inferred type, nulls, cardinality and a
+sample of real values (`etl definir`); a few valid and rejected rows if you run
+`dry-run`; and whatever is already in your catalogue, to check for overlap.
+
+**Never leaves:** the load itself. `etl ejecutar` is Python and SQL against
+`datos/almacen.duckdb`, it runs with the assistant closed, and it's what you'll
+repeat every month for years.
+
+**If the file holds data that can't leave: anonymise, don't fabricate.** Take
+the real file and replace the sensitive values **keeping their shape** — same
+length, same format, same leading zeros, same proportion of blanks. Building a
+sample file from scratch defeats the point: profiling is exactly what decides
+whether `03` is text or a number and whether dates are day/month, and against
+an invented file it will get those right for the invented file. And if not even
+a sample can leave, the framework has **no LLM dependency at all**:
+`/cargas/<name>.json` is documented text you can write by hand or dictate to a
+local model. You lose the conversation, not the product.
 
 ## Issues and contributions
 

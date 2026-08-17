@@ -6,9 +6,18 @@ description: Define una carga ETL recurrente (Excel/CSV/texto) a partir de un fi
 # definir-carga
 
 Objetivo: convertir un fichero de muestra en una definición de carga
-(`/cargas/<nombre>.json`) reutilizable, sin que ningún dato pase por el
-modelo — el modelo interviene una vez, sobre la muestra, para proponer la
-definición; el motor (`motor/motor_etl.py`) es quien ejecuta después.
+(`/cargas/<nombre>.json`) reutilizable. El modelo interviene **una sola vez**,
+sobre el perfil de la muestra, para proponer la definición; a partir de ahí
+ejecuta el motor (`motor/motor_etl.py`) y ninguna carga vuelve a pasar por un
+modelo.
+
+Ojo con lo que eso implica y hay que decirle al usuario si no lo ha planteado
+él: el perfil incluye **valores reales** de sus columnas, así que esta primera
+conversación sí saca una muestra de su equipo. Si el fichero lleva datos que no
+pueden salir, remítele a "Qué ve el asistente" en el README **antes** de
+perfilar nada: la salida buena es anonimizar conservando la forma de los
+valores, no fabricar un fichero de muestra —un fichero inventado da un perfil
+correcto sobre datos que no son los suyos.
 
 No escribas nada en disco hasta el paso 8. Todo lo anterior es análisis y
 propuesta en el chat.

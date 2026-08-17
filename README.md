@@ -14,11 +14,17 @@ es el tramo que ya tenía herramientas. Esto va del principio: **la ingesta**.
 
 Y con una regla que no se negocia: **la IA está en el diseño, no en la
 ejecución**. De la conversación sale un fichero de configuración; a partir de
-ahí es SQL corriendo solo, igual cada mes. Ninguna fila de tus datos la toca
-un modelo.
+ahí es SQL corriendo solo, igual cada mes. **Ninguna carga la toca un modelo.**
 
 Local, monousuario y autónomo, sobre DuckDB. Sin servidor, sin autenticación,
 sin nube. Todo vive en un fichero en tu disco.
+
+> **La excepción es la primera conversación.** Para proponerte un esquema hay
+> que mirar tu fichero: al asistente le llegan los nombres de las columnas y
+> **una muestra de valores reales** de cada una. Eso sale de tu equipo, a donde
+> corra el modelo. De ahí en adelante, nunca más. Si tu fichero lleva datos que
+> no pueden salir, mira [Qué ve el asistente](#qué-ve-el-asistente) **antes** de
+> la primera carga.
 
 ## Qué problema resuelve
 
@@ -306,6 +312,41 @@ original.
 
 No se exige salir de la máquina porque no todo el mundo tiene sincronización,
 y un disco aparte ya cubre el fallo más probable, que es que muera el disco.
+
+## Qué ve el asistente
+
+El reparto no es obvio, así que conviene tenerlo claro antes de la primera
+carga: **el diseño ve una muestra, la ejecución no ve nada.**
+
+**Sale de tu equipo**, una vez, al definir la carga o el proceso:
+
+- el nombre del fichero y el de sus columnas,
+- por columna: tipo aparente, nulos, cardinalidad y **una muestra de valores
+  reales** (`etl definir`),
+- si haces `dry-run`, unas cuantas filas válidas y las rechazadas con su
+  motivo,
+- lo que ya haya en tu catálogo, para comprobar solapamiento.
+
+**No sale nunca:** la carga. `etl ejecutar` es Python y SQL contra
+`datos/almacen.duckdb`, corre con el asistente cerrado, y es lo que vas a
+repetir todos los meses durante años.
+
+### Si el fichero tiene datos que no pueden salir
+
+**Anonimiza, no inventes.** Coge el fichero real y sustituye los valores
+sensibles **conservando su forma**: mismo largo, mismo formato, mismos ceros a
+la izquierda, misma proporción de vacíos. Un NIF falso con forma de NIF perfila
+igual que el bueno.
+
+Lo que no funciona es fabricar un fichero de muestra desde cero. El perfilado es
+precisamente lo que decide si `03` es texto o número y si las fechas van
+día/mes; sobre un fichero inventado acertará, pero sobre el inventado. El
+esquema que salga describirá al falso. Es el mismo motivo por el que perfilar y
+cargar usan [el mismo lector](#xlsx).
+
+Y si ni una muestra puede salir: el framework **no tiene ninguna dependencia de
+LLM**. `/cargas/<nombre>.json` es texto documentado más abajo, se escribe a mano
+o se le dicta a un modelo local. Pierdes la conversación, no el producto.
 
 ## Respaldos
 
