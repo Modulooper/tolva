@@ -1191,6 +1191,110 @@ Query los abra sin conflicto. Si vas a dejar una consulta interactiva abierta
 contra `almacen.duckdb` (p. ej. desde un notebook), ciérrala antes de abrir
 los ficheros exportados desde otra herramienta.
 
+### Que Excel lea parquet: el driver ODBC de DuckDB
+
+El parquet exportado conserva los tipos, que es justo lo que se pierde por el
+camino con un CSV: una columna `mes` con valor `"03"` llega como texto y no
+como el número 3. El problema es quién lo lee. **Power BI abre parquet de
+forma nativa; Excel no.** Comprobado sobre esta instalación (Microsoft 365
+x64, build 16.0.20403.20000):
+
+- *Datos → Obtener datos → De un archivo* ofrece Excel, texto/CSV, XML, JSON,
+  PDF y carpeta. No hay Parquet.
+- Escrito a mano en el editor avanzado,
+  `Parquet.Document(File.Contents("...parquet"))` responde
+  `Expression.Error: The name 'Parquet.Document' wasn't recognized`, aunque el
+  nombre de la función aparezca dentro de los binarios del motor.
+
+Esto coincide con lo que documenta Microsoft: el conector Parquet lista como
+productos soportados Power BI, Fabric, Power Apps y Customer Insights, y Excel
+no está. Así que para Excel quedaba el CSV, con la pérdida de tipos que eso
+supone.
+
+La salida es el **driver ODBC de DuckDB**, que le da a Excel los tipos
+reconocidos por un camino que sí sabe recorrer. Se instala una vez:
+
+1. Descargar `duckdb_odbc-windows-amd64.zip` de las releases de
+   [duckdb/duckdb-odbc](https://github.com/duckdb/duckdb-odbc/releases) y
+   ejecutar el `odbc_install.exe` que trae.
+2. Comprobar que **la versión del driver empareja con la de `duckdb` del
+   venv**. El formato de fichero `.duckdb` va atado a la versión del motor y el
+   driver lleva el suyo embebido: si actualizas uno sin el otro, deja de abrir.
+   Aquí van la `v1.5.5.0` del driver contra `duckdb 1.5.5`.
+
+A partir de ahí hay dos sitios a los que apuntarlo, y **solo uno es bueno**.
+
+#### La vía buena: en memoria, contra los parquet exportados
+
+DuckDB puede abrirse **sin fichero** (`database=:memory:`) y leer el parquet
+desde SQL. Así Excel recibe los parquet con sus tipos y el almacén no se toca:
+
+```
+let Origen = Odbc.Query("driver={DuckDB Driver};database=:memory:", "SELECT * FROM read_parquet('<repo>\export\movimiento_bancario_consumo.parquet')") in Origen
+```
+
+Comprobado en Excel: 40 filas, 5 columnas, con `fecha_ejecucion` y
+`fecha_valor` como Fecha e `importe`/`saldo` como decimal — los tipos que el
+CSV perdía. Y comprobado además **con un escritor Python bloqueando el
+almacén**: la consulta carga igual, porque no abre ningún `.duckdb`.
+
+De paso se puede consultar más de una vista de golpe, que con el conector de
+parquet de Power BI habría que hacer fichero a fichero:
+
+```sql
+SELECT * FROM read_parquet('<repo>\export\*_consumo.parquet', union_by_name := true)
+```
+
+La primera vez Excel pide credenciales para el origen ODBC: es *Default or
+Custom* → *Conectar*, sin usuario ni contraseña. DuckDB en local no usa
+ninguna.
+
+#### La vía mala: apuntar Power Query al almacén vivo
+
+Parece lo natural y es justo lo que no hay que hacer: **Power Query abre el
+`.duckdb` en escritura, y no hay forma de impedírselo.**
+
+El driver sí respeta `access_mode=read_only` cuando lo usa un cliente ODBC
+normal — probado con `System.Data.Odbc`, deniega el `CREATE TABLE` y convive
+con otros lectores. Pero Power Query no lo hereda. Con un lector en solo
+lectura abierto contra el almacén, las tres formas de pedirlo fallan con
+"fichero en uso":
+
+| cadena desde Power Query | resultado |
+|---|---|
+| `dsn=Tolva` (con `read_only` en el DSN) | choca |
+| `dsn=Tolva;access_mode=read_only` | choca |
+| `driver={DuckDB Driver};database=...;access_mode=read_only` | choca |
+
+Si pidiera solo lectura convivirían, porque DuckDB admite varios lectores a la
+vez. Que choque contra un lector significa que está pidiendo escritura. Las
+consecuencias son dos, y ninguna es teórica:
+
+- Mientras Power Query refresca, **cualquier carga de Tolva falla**.
+- El proceso `Microsoft.Mashup.Container` que evalúa la consulta **sobrevive al
+  cierre del editor** y se queda con el fichero cogido. Pasó durante estas
+  pruebas: el almacén siguió bloqueado un rato después de cerrar Power Query.
+
+Si aun así quieres consultar el almacén vivo desde Excel de forma puntual, un
+DSN con `access_mode=read_only` sirve para clientes ODBC normales (en esta
+instalación existe uno llamado `Tolva`). Detalle al crearlo: el instalador del
+driver solo reconoce `database`, así que `access_mode` hay que añadirlo a mano
+a la clave del DSN (`HKCU\SOFTWARE\ODBC\ODBC.INI\<nombre>`).
+
+#### Notas sueltas
+
+- Mejor `Odbc.Query` que `Odbc.DataSource`: el *query folding* del driver es
+  flojo y, si no mandas tú el `SELECT`, Power Query se trae la tabla entera y
+  filtra en memoria.
+- **Refrescar en el servicio de Power BI exige un gateway** en una máquina con
+  el driver instalado y un DSN **de sistema** (el de usuario no vale). No es un
+  conector certificado: va por la vía de ODBC genérico.
+- **Excel de 32 bits no habla con un driver de 64.**
+- Las consultas de Power Query se pueden crear **sin tocar la interfaz**, desde
+  el modelo de objetos de Excel: `$wb.Queries.Add(nombre, m)` y un `QueryTable`
+  con `CommandType = 2` para volcarla a hoja. Útil para generar libros
+  enlazados a las vistas de consumo sin montarlos a mano.
+
 ## Historial de versiones
 
 En [CHANGELOG.md](CHANGELOG.md).
