@@ -346,7 +346,8 @@ cargar usan [el mismo lector](#xlsx).
 
 Y si ni una muestra puede salir: el framework **no tiene ninguna dependencia de
 LLM**. `/cargas/<nombre>.json` es texto documentado más abajo, se escribe a mano
-o se le dicta a un modelo local. Pierdes la conversación, no el producto.
+o se le dicta a un modelo local. El motor no necesita la conversación; tú sí, así
+que cuenta con escribir la definición a pulso.
 
 ## Respaldos
 

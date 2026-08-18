@@ -157,7 +157,8 @@ whether `03` is text or a number and whether dates are day/month, and against
 an invented file it will get those right for the invented file. And if not even
 a sample can leave, the framework has **no LLM dependency at all**:
 `/cargas/<name>.json` is documented text you can write by hand or dictate to a
-local model. You lose the conversation, not the product.
+local model. The engine doesn't need the conversation; you do, so expect to write
+the definition by hand.
 
 ## Issues and contributions
 
