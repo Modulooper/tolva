@@ -20,6 +20,43 @@ EXPORT_DIR = entorno.ruta("export")
 
 FORMATOS = {".csv": "csv", ".parquet": "parquet", ".xlsx": "xlsx"}
 
+# Un color en hexadecimal, con o sin almohadilla: "000000", "#1F4E79".
+HEX = "^#?[0-9A-Fa-f]{6}$"
+
+# Presentación de una salida xlsx. Es deliberadamente pobre: cubre lo que hace
+# que un fichero se pueda mandar a alguien sin retocarlo a mano (dónde empieza
+# la tabla, cabecera distinguible, bordes, anchos y cómo se ven fechas e
+# importes) y nada más. Un xlsx no es un informe: si hace falta algo que esto
+# no da, el sitio es una plantilla, no más claves aquí.
+SCHEMA_ESTILO = {
+    "type": "object",
+    "properties": {
+        # Dónde cae la esquina de la cabecera. Dejar un margen arriba y a la
+        # izquierda es lo que separa una tabla volcada de una tabla presentada.
+        "fila_inicio": {"type": "integer", "minimum": 1},
+        "columna_inicio": {"type": "integer", "minimum": 1},
+        # Ancho de las columnas de margen que quedan a la izquierda.
+        "ancho_margen": {"type": "number", "exclusiveMinimum": 0},
+        "hoja": {"type": "string", "minLength": 1},
+        "cabecera": {
+            "type": "object",
+            "properties": {
+                "fondo": {"type": "string", "pattern": HEX},
+                "texto": {"type": "string", "pattern": HEX},
+                "negrita": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        },
+        "bordes": {"enum": ["thin", "medium", "none"]},
+        "autofiltro": {"type": "boolean"},
+        # Por nombre de columna del SELECT, no por letra de Excel: la letra
+        # depende de columna_inicio y se rompe al reordenar el SELECT.
+        "anchos": {"type": "object", "additionalProperties": {"type": "number"}},
+        "formatos": {"type": "object", "additionalProperties": {"type": "string"}},
+    },
+    "additionalProperties": False,
+}
+
 SCHEMA_SALIDA = {
     "type": "object",
     "properties": {
@@ -27,6 +64,7 @@ SCHEMA_SALIDA = {
         "fichero": {"type": "string", "minLength": 1},
         "sql": {"type": "string", "minLength": 1},
         "carpeta": {"type": "string", "minLength": 1},
+        "estilo": SCHEMA_ESTILO,
     },
     "required": ["nombre", "fichero", "sql"],
     "additionalProperties": False,
@@ -83,6 +121,99 @@ def _escribir_xlsx(con, sql: str, ruta: Path, valores: list = None) -> None:
     wb.save(ruta)
 
 
+def _argb(color: str) -> str:
+    """Hexadecimal de usuario a ARGB de Excel: '#1F4E79' -> 'FF1F4E79'."""
+    return "FF" + color.lstrip("#").upper()
+
+
+def _escribir_xlsx_con_estilo(con, sql: str, ruta: Path, valores: list, estilo: dict) -> None:
+    """Escribe xlsx con presentación, siempre por openpyxl.
+
+    No hay camino por DuckDB aquí: su `COPY ... (FORMAT xlsx)` vuelca la
+    rejilla y no expone estilos, así que una salida con `estilo` paga el paso
+    por Python a cambio del formato. Es un intercambio consciente y solo lo
+    paga quien lo pide: sin `estilo`, la salida sigue yendo por el motor.
+    """
+    import openpyxl
+    from openpyxl.styles import Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    cursor = con.execute(sql, valores)
+    columnas = [d[0] for d in cursor.description]
+    filas = cursor.fetchall()
+
+    fila_cab = estilo.get("fila_inicio", 1)
+    col_ini = estilo.get("columna_inicio", 1)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    if estilo.get("hoja"):
+        ws.title = estilo["hoja"]
+
+    for desplazamiento, nombre in enumerate(columnas):
+        ws.cell(row=fila_cab, column=col_ini + desplazamiento, value=nombre)
+    for numero, fila in enumerate(filas, start=fila_cab + 1):
+        for desplazamiento, valor in enumerate(fila):
+            ws.cell(row=numero, column=col_ini + desplazamiento, value=valor)
+
+    fila_final = fila_cab + len(filas)
+    col_final = col_ini + len(columnas) - 1
+
+    cabecera = estilo.get("cabecera") or {}
+    if cabecera:
+        relleno = PatternFill("solid", fgColor=_argb(cabecera["fondo"])) if cabecera.get("fondo") else None
+        fuente = Font(
+            color=_argb(cabecera["texto"]) if cabecera.get("texto") else None,
+            bold=cabecera.get("negrita", False),
+        )
+        for numero in range(col_ini, col_final + 1):
+            celda = ws.cell(row=fila_cab, column=numero)
+            if relleno is not None:
+                celda.fill = relleno
+            celda.font = fuente
+
+    estilo_borde = estilo.get("bordes", "none")
+    if estilo_borde != "none":
+        lado = Side(style=estilo_borde, color="FF000000")
+        borde = Border(left=lado, right=lado, top=lado, bottom=lado)
+        for fila_celdas in ws.iter_rows(min_row=fila_cab, max_row=fila_final,
+                                        min_col=col_ini, max_col=col_final):
+            for celda in fila_celdas:
+                celda.border = borde
+
+    # Los formatos van por nombre de columna del SELECT y solo a los datos: la
+    # cabecera es texto y un '#,##0.00' encima de "Importe" no pinta nada.
+    for nombre, formato in (estilo.get("formatos") or {}).items():
+        if nombre not in columnas:
+            raise ValueError(
+                f"la salida da formato a '{nombre}', que no es ninguna columna del SELECT "
+                f"({', '.join(columnas)})"
+            )
+        columna = col_ini + columnas.index(nombre)
+        for numero in range(fila_cab + 1, fila_final + 1):
+            ws.cell(row=numero, column=columna).number_format = formato
+
+    for nombre, ancho in (estilo.get("anchos") or {}).items():
+        if nombre not in columnas:
+            raise ValueError(
+                f"la salida da ancho a '{nombre}', que no es ninguna columna del SELECT "
+                f"({', '.join(columnas)})"
+            )
+        letra = get_column_letter(col_ini + columnas.index(nombre))
+        ws.column_dimensions[letra].width = ancho
+
+    if estilo.get("ancho_margen"):
+        for numero in range(1, col_ini):
+            ws.column_dimensions[get_column_letter(numero)].width = estilo["ancho_margen"]
+
+    if estilo.get("autofiltro"):
+        ws.auto_filter.ref = (
+            f"{get_column_letter(col_ini)}{fila_cab}:{get_column_letter(col_final)}{fila_final}"
+        )
+
+    wb.save(ruta)
+
+
 def generar(con, salida: dict, contexto: dict = None) -> dict:
     """Genera una salida. Devuelve la ruta y el número de filas escritas.
 
@@ -113,6 +244,8 @@ def generar(con, salida: dict, contexto: dict = None) -> dict:
         con.execute(f"COPY ({sql}) TO '{ruta.as_posix()}' (FORMAT CSV, HEADER)", valores)
     elif formato == "parquet":
         con.execute(f"COPY ({sql}) TO '{ruta.as_posix()}' (FORMAT PARQUET)", valores)
+    elif salida.get("estilo"):
+        _escribir_xlsx_con_estilo(con, sql, ruta, valores, salida["estilo"])
     else:
         _escribir_xlsx(con, sql, ruta, valores)
 
