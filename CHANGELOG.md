@@ -20,6 +20,15 @@ migración que la tomó.
   aparte antes de que muera en ese clon. Sale de la primera instalación ajena,
   que extendió el motor en su primera sesión —bien, y sin que la mejora tuviera
   ningún camino de vuelta.
+- **`estilo` en una salida xlsx** (*aportación de Mañi*): dónde arranca la
+  cabecera, colores, bordes, autofiltro, anchos y formatos de número. Cubre el
+  caso que faltaba: un fichero que sale hacia **una persona** —un cliente, una
+  gestoría— y no hacia otro sistema. Sin esto se retoca a mano cada mes, que es
+  el trabajo que el resto del framework existe para quitar. Los anchos y
+  formatos van por nombre de columna del `SELECT` y no por letra de Excel, que
+  se rompe al reordenarlo. Declararlo sobre `.csv` o `.parquet` lo rechaza
+  `etl validar`; una columna que no existe falla al generar. Sin `estilo`, el
+  camino de escritura no cambia.
 - **Avisa y no impide**, y **no envía nada**: un diff del núcleo puede arrastrar
   datos de negocio, así que detecta, avisa y prepara el `.patch`; subirlo lo
   decide una persona. Se apaga con `"mantenedor": true` en `config.local.json`.

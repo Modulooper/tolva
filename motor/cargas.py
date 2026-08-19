@@ -353,9 +353,15 @@ def validar(definicion: dict, con=None) -> list:
 
     for salida in definicion.get("salidas", []):
         try:
-            salidas.formato_de(salida["fichero"])
+            formato_salida = salidas.formato_de(salida["fichero"])
         except ValueError as exc:
             errores.append(f"salida '{salida['nombre']}': {exc}")
+            continue
+        if "estilo" in salida and formato_salida != "xlsx":
+            errores.append(
+                f"salida '{salida['nombre']}': declara 'estilo' pero escribe "
+                f"{formato_salida}; el formato solo se aplica a xlsx"
+            )
 
     campos_singularidad = definicion.get("campos_singularidad", [])
 

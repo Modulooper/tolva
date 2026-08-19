@@ -174,7 +174,7 @@ Debería devolver las ventas dummy de la librería de ejemplo, sin errores.
 python -m unittest discover -s pruebas -t .
 ```
 
-119 pruebas que cubren instalación, motor ETL, singularidad, hall, stops y
+237 pruebas que cubren instalación, motor ETL, singularidad, hall, stops y
 alarmas, salidas, CRUD genérico, trazabilidad, documentos, historial/purga,
 parámetros, diagrama del modelo, descripciones de carga y separación
 núcleo/ejemplos/capa propia. Corren contra el dominio de ejemplo, no contra
@@ -801,6 +801,54 @@ El xlsx lo escribe la extensión `excel` de DuckDB dentro del motor (83.440
 filas en 0,6 s). Si no estuviera disponible —requiere red la primera vez que se
 instala— se recurre a openpyxl, que ya es dependencia pero pasa las filas por
 Python.
+
+### `estilo`: cuando el fichero se manda a alguien
+
+Una salida xlsx puede declarar `estilo`. No es maquillaje: un fichero que sale
+del sistema hacia otra persona —un cliente, una gestoría, tu padre— se retoca a
+mano cada mes si llega como un volcado, y ese retoque manual es justo lo que el
+resto del framework existe para quitar.
+
+```json
+"salidas": [
+  {
+    "nombre": "ventas_para_enviar",
+    "fichero": "%Y%m%d_ventas_{ejecucion_id}.xlsx",
+    "sql": "SELECT l.titulo AS \"Libro\", v.unidades AS \"Unidades\", v.importe AS \"Importe\" FROM demo_venta v JOIN demo_libro l ON l.id = v.demo_libro_id WHERE v.ejecucion_id = $ejecucion_id",
+    "estilo": {
+      "fila_inicio": 2,
+      "columna_inicio": 2,
+      "ancho_margen": 2.86,
+      "cabecera": {"fondo": "000000", "texto": "FFFFFF", "negrita": false},
+      "bordes": "thin",
+      "autofiltro": true,
+      "anchos":   {"Libro": 34},
+      "formatos": {"Importe": "#,##0.00"}
+    }
+  }
+]
+```
+
+- **`fila_inicio` / `columna_inicio`** dicen dónde cae la esquina de la
+  cabecera; lo que queda por encima y a la izquierda es margen en blanco.
+  `ancho_margen` estrecha esas columnas de margen.
+- **`anchos` y `formatos` van por nombre de columna del `SELECT`**, no por
+  letra de Excel: la letra depende de `columna_inicio` y se rompe en cuanto se
+  reordena el `SELECT`. Un nombre que no exista es un error al generar, no un
+  formato que se pierde en silencio.
+- **`bordes`** (`thin`, `medium`, `none`) se aplica a la tabla entera,
+  cabecera incluida. **`autofiltro`** pone el desplegable en la cabecera.
+- Los colores van en hexadecimal, con o sin almohadilla.
+
+Una salida con `estilo` **se escribe siempre por openpyxl**, no por el `COPY`
+de DuckDB: el volcado del motor no expone estilos. Es más lento y solo lo paga
+quien lo pide. Declarar `estilo` sobre una salida `.csv` o `.parquet` lo
+rechaza `etl validar`, sin llegar a ejecutar nada: el formato se sabe por la
+extensión del fichero desde que se define la carga.
+
+El alcance es corto a propósito: cubre lo que hace presentable una tabla y
+nada más. Si hace falta un logotipo, totales al pie o varias hojas, el sitio
+es una plantilla xlsx, no más claves aquí.
 
 ## Stops y alarmas
 

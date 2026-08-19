@@ -213,3 +213,72 @@ class PruebaSalidas(BaseCarga):
         ruta = list(self.export_dir.glob("*_ventas_resumen.csv"))
         self.assertEqual(len(ruta), 1, f"no se generó la salida en {self.export_dir}")
         self.assertIn("Teclado", ruta[0].read_text(encoding="utf-8"))
+
+    def test_salida_xlsx_con_estilo_desplaza_colorea_y_formatea(self):
+        """El estilo es lo que separa un volcado de un fichero que se manda a
+        alguien: margen arriba y a la izquierda, cabecera distinguible, bordes
+        y los importes con cara de importe."""
+        nombre = self.preparar_venta(salidas=[{
+            "nombre": "presentable",
+            "fichero": "{carga}_presentable.xlsx",
+            "sql": "SELECT producto, importe FROM venta ORDER BY producto",
+            "estilo": {
+                "fila_inicio": 2,
+                "columna_inicio": 2,
+                "ancho_margen": 2.86,
+                "cabecera": {"fondo": "000000", "texto": "#FFFFFF", "negrita": True},
+                "bordes": "thin",
+                "autofiltro": True,
+                "anchos": {"producto": 24.5},
+                "formatos": {"importe": "#,##0.00"},
+            },
+        }])
+        self.ejecutar(nombre)
+
+        import openpyxl
+        ruta = list(self.export_dir.glob("*_presentable.xlsx"))
+        self.assertEqual(len(ruta), 1, f"no se generó la salida en {self.export_dir}")
+        hoja = openpyxl.load_workbook(ruta[0]).active
+
+        self.assertIsNone(hoja["A1"].value, "la fila y la columna de margen deben quedar vacías")
+        self.assertIsNone(hoja["B1"].value)
+        self.assertEqual(hoja["B2"].value, "producto", "la cabecera arranca en la esquina declarada")
+
+        cabecera = hoja["B2"]
+        self.assertEqual(cabecera.fill.fgColor.rgb, "FF000000")
+        self.assertEqual(cabecera.font.color.rgb, "FFFFFFFF", "el '#' del color no debe viajar al ARGB")
+        self.assertTrue(cabecera.font.bold)
+
+        self.assertEqual(hoja["B3"].border.left.style, "thin")
+        self.assertEqual(hoja["C3"].number_format, "#,##0.00")
+        self.assertEqual(hoja["B3"].number_format, "General", "el formato es por columna, no para toda la tabla")
+        self.assertEqual(round(hoja.column_dimensions["A"].width, 2), 2.86)
+        self.assertEqual(round(hoja.column_dimensions["B"].width, 2), 24.5)
+        self.assertTrue(hoja.auto_filter.ref.startswith("B2:"))
+
+    def test_estilo_sobre_columna_inexistente_falla_al_generar(self):
+        """Una errata en el nombre de columna del estilo tiene que doler: si se
+        ignorase, el fichero saldría sin formato y nadie miraría por qué."""
+        nombre = self.preparar_venta(salidas=[{
+            "nombre": "erratada",
+            "fichero": "{carga}_erratada.xlsx",
+            "sql": "SELECT producto, importe FROM venta",
+            "estilo": {"formatos": {"imported": "#,##0.00"}},
+        }])
+        with self.assertRaises(Exception) as caso:
+            self.ejecutar(nombre)
+        self.assertIn("imported", str(caso.exception))
+
+    def test_estilo_sobre_csv_se_rechaza_al_validar(self):
+        """El estilo solo existe en xlsx. Declararlo sobre un csv es un error de
+        definición, no algo que se acepta y se ignora en silencio — y se rechaza
+        al validar, no al ejecutar: el formato se sabe por la extensión del
+        fichero desde que se define la carga, sin leer ni escribir nada."""
+        nombre = self.preparar_venta(salidas=[{
+            "nombre": "imposible",
+            "fichero": "{carga}_imposible.csv",
+            "sql": "SELECT producto FROM venta",
+            "estilo": {"bordes": "thin"},
+        }])
+        errores = cargas.validar(cargas.cargar(nombre), self.con)
+        self.assertTrue(any("xlsx" in error for error in errores), errores)
