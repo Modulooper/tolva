@@ -1,4 +1,4 @@
-"""CLI: db migrar/consultar/diagrama/uso/rutas/init/respaldar/respaldos/restaurar |
+"""CLI: db migrar/consultar/diagrama/uso/rutas/init/respaldar/respaldos/restaurar/nucleo |
 etl definir/esquema/validar/dry-run/ejecutar/estado/exportar/salida |
 registro campos/crear/listar/editar/borrar (cualquier entidad del catálogo) |
 documento adjuntar/listar/purgar | proceso analizar.
@@ -15,6 +15,7 @@ import sys
 import duckdb
 
 from . import (
+    aportaciones,
     cargas,
     consultas,
     db,
@@ -110,6 +111,13 @@ def _cmd_db_respaldar(args: argparse.Namespace) -> int:
     con código distinto de cero: un respaldo que falla en silencio es peor que
     no tener respaldo, porque encima da tranquilidad.
     """
+    # Antes del corte por «no hay respaldo configurado»: son cosas
+    # independientes, y quien no respalda es justo quien más falta le hace
+    # enterarse de que su núcleo ha divergido.
+    aviso_nucleo = aportaciones.aviso_de_nucleo()
+    if aviso_nucleo:
+        print(aviso_nucleo, file=sys.stderr)
+
     if entorno.ruta("respaldo") is None:
         if args.silencioso:
             return 0
@@ -152,6 +160,57 @@ def _cmd_db_respaldar(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     print(f"Quedan {resultado['snapshots']} snapshots en {entorno.ruta('respaldo')}")
+    return 0
+
+
+def _cmd_db_nucleo(args: argparse.Namespace) -> int:
+    """Qué hay tocado del framework en esta instalación.
+
+    Con `--hook` lee por la entrada estándar el payload de `PostToolUse` y, si
+    lo escrito era del núcleo, devuelve el aviso por stderr con código 2, que es
+    como un hook le habla al asistente. Cualquier otro caso sale en silencio con
+    0: un hook que rompe una sesión por un fallo suyo es peor que no tenerlo.
+    """
+    if args.hook:
+        try:
+            mensaje = aportaciones.mensaje_para_hook(sys.stdin.read())
+        except Exception:  # noqa: BLE001 - un hook no puede tumbar la sesión
+            return 0
+        if mensaje:
+            print(mensaje, file=sys.stderr)
+            return 2
+        return 0
+
+    if aportaciones.es_mantenedor():
+        print("Esta máquina está marcada como mantenedora del framework "
+              "(\"mantenedor\": true en config.local.json): sin avisos.")
+        return 0
+
+    estado = aportaciones.nucleo_modificado()
+    if not estado["sin_confirmar"] and not estado["sin_enviar"]:
+        print("El núcleo de Tolva está como se publicó. Nada que mandar.")
+        return 0
+
+    print(f"Rama: {estado['rama'] or 'desconocida'}")
+    if estado["sin_confirmar"]:
+        print("\nModificado y sin confirmar (se pierde si nadie lo commitea):")
+        for ruta in estado["sin_confirmar"]:
+            print(f"  {ruta}")
+    if estado["sin_enviar"]:
+        print("\nConfirmado y por delante del remoto (no le llega a nadie):")
+        for ruta in estado["sin_enviar"]:
+            print(f"  {ruta}")
+
+    print(
+        "\nDos preguntas, en este orden:\n"
+        "  1. ¿Es un proceso tuyo? Entonces va a propio/, no al núcleo.\n"
+        "  2. ¿Es una capacidad del framework? Entonces mándala, y de paso te ahorras\n"
+        "     el conflicto del próximo 'git pull'.\n"
+        "\nPara empaquetarla, con el núcleo en una rama aparte:\n"
+        "  git diff main -- motor migraciones catalogo cargas > aportacion.patch\n"
+        "Repasa el .patch antes de mandarlo: no debe llevar nada de propio/ ni datos "
+        "de negocio."
+    )
     return 0
 
 
@@ -821,6 +880,12 @@ def main(argv=None) -> int:
     )
     db_sub.add_parser("respaldos", help="Qué respaldos hay")
 
+    nucleo_parser = db_sub.add_parser(
+        "nucleo", help="Qué hay tocado del framework en esta instalación")
+    nucleo_parser.add_argument(
+        "--hook", action="store_true",
+        help="Lee el payload de PostToolUse por stdin (para .claude/settings.json)")
+
     restaurar_parser = db_sub.add_parser(
         "restaurar", help="Importa un respaldo a un almacén NUEVO y lo verifica")
     restaurar_parser.add_argument(
@@ -952,6 +1017,8 @@ def main(argv=None) -> int:
             return _cmd_db_respaldar(args)
         if args.command == "respaldos":
             return _cmd_db_respaldos(args)
+        if args.command == "nucleo":
+            return _cmd_db_nucleo(args)
         if args.command == "restaurar":
             return _cmd_db_restaurar(args)
         if args.command == "consultar":

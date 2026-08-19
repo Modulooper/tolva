@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && export PYTHONIOENCODING=utf-8 && P=\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\"; [ -x \"$P\" ] || P=\"$CLAUDE_PROJECT_DIR/.venv/bin/python\"; [ -x \"$P\" ] || P=python; \"$P\" -m motor.cli db nucleo --hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "SessionEnd": [
       {
         "hooks": [

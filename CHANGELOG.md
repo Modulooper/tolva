@@ -9,6 +9,28 @@ falta. El **porqué** de cada decisión de modelo sí se conserva, pero no en es
 fichero: vive en la tabla `_decisiones` del propio almacén, junto a la
 migración que la tomó.
 
+## [No publicado]
+
+### Añadido
+
+- **Aviso al escribir fuera de `propio/`**: un hook `PostToolUse` se lo devuelve
+  al asistente en el momento, y `db nucleo` lo resume a demanda y en el respaldo
+  de fin de sesión. Plantea los dos casos en vez de decidir: un proceso del
+  usuario va a `propio/`, y una capacidad del framework se manda en una rama
+  aparte antes de que muera en ese clon. Sale de la primera instalación ajena,
+  que extendió el motor en su primera sesión —bien, y sin que la mejora tuviera
+  ningún camino de vuelta.
+- **Avisa y no impide**, y **no envía nada**: un diff del núcleo puede arrastrar
+  datos de negocio, así que detecta, avisa y prepara el `.patch`; subirlo lo
+  decide una persona. Se apaga con `"mantenedor": true` en `config.local.json`.
+
+### Cambiado
+
+- **La bienvenida cuenta las dos puertas de entrada, con un ejemplo de cada
+  una.** En la primera instalación ajena solo se explicó la carga de fichero, y
+  el CRUD conversacional —lo que se teclea, sin fichero de por medio— no llegó a
+  aparecer.
+
 ## [0.5.0] — 2026-08-08
 
 ### Añadido

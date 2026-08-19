@@ -68,6 +68,23 @@ de systemd en Linux/macOS). Antes hay que configurar el destino con
 `db init --respaldo <ruta>`: sin eso el comando no hace nada, a propósito.
 El detalle está en [README.md](README.md), en «Respaldos» → «Automatizarlo».
 
+## 4. Si tocas el framework, nadie te va a avisar
+
+Claude Code trae un hook que salta al escribir fuera de `propio/`. Tú no lo
+tienes, así que la comprobación es tuya y va a mano:
+
+```bash
+python -m motor.cli db nucleo
+```
+
+Dos casos y solo tú sabes cuál es. Si lo que escribiste es un proceso del
+usuario, su sitio es `propio/` y hay que moverlo. Si es una capacidad del
+framework, déjala en una rama aparte y propón mandarla: aquí se queda en este
+clon, y en la principal choca con el próximo `git pull`.
+
+Y no subas nada por tu cuenta: un diff del núcleo puede llevar dentro datos de
+negocio.
+
 ## Y una cosa que no es un automatismo
 
 La carpeta `ejemplos/` es un dominio inventado (`demo_cliente`, `demo_libro`,

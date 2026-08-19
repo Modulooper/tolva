@@ -51,10 +51,15 @@ todavía no sabe qué puede pedir:
 - **Aquí no se ejecutan comandos, se habla.** El usuario cuenta lo que
   necesita y tú decides si eso pide migración, CRUD o carga de fichero. Los
   comandos existen (README) pero son el suelo, no la interfaz.
-- **Dos puertas de entrada**: un **fichero que se repite** (extracto, export
-  mensual) es una *carga* — skill `definir-carga`; algo que el usuario
-  teclea (gastos, ideas, clientes) es un *proceso de negocio* con su CRUD —
-  skill `crear-proceso`, sin fichero de por medio.
+- **Dos puertas de entrada, y las dos se cuentan siempre**: un **fichero que
+  se repite** (extracto, export mensual) es una *carga* — skill
+  `definir-carga`; algo que el usuario teclea (gastos, ideas, clientes) es un
+  *proceso de negocio* con su CRUD — skill `crear-proceso`, sin fichero de por
+  medio. Da un ejemplo concreto de cada una, no solo el nombre: «el extracto
+  del banco que te descargas cada mes» y «las tareas que hoy llevas en una
+  libreta, que tecleas aquí y quedan consultables». La segunda puerta es la
+  que se olvida, porque venís de instalar y lo siguiente natural parece un
+  fichero: si en tu introducción solo aparece la carga, está incompleta.
 - **Nada se crea a ciegas**: antes de una tabla nueva se comprueba
   solapamiento contra el catálogo (`/catalogo/*.json`) y contra los datos
   reales (`proceso analizar`), para no acabar con tres nombres para lo
@@ -98,9 +103,10 @@ todavía no sabe qué puede pedir:
   trastear sin ensuciar nada. Los ejemplos son invisibles: no salen en el
   diagrama ni cuentan como evidencia al diseñar nada.
 
-Cierra invitándole a empezar por lo más tonto que tenga a mano: un fichero
-que abre cada mes, o una lista que lleva en un Excel suelto. En una
-conversación queda montado y de paso ve el flujo entero.
+Cierra invitándole a empezar por lo más tonto que tenga a mano, y ofrécele
+las dos opciones de nuevo aquí: un fichero que abre cada mes, o una lista que
+lleva en un Excel suelto o en una libreta. En una conversación queda montado
+y de paso ve el flujo entero.
 
 No repitas el README entero — para el detalle de cada comando, remite a él
 en vez de listarlos todos en el chat.
@@ -137,6 +143,12 @@ en vez de listarlos todos en el chat.
   incluyas en visualizaciones salvo que el usuario las pida por su nombre.
   El código ya las oculta por defecto (`catalogo.listar_entidades`); esta
   regla es para lo que decides tú, que el código no puede filtrar.
+- **Si escribes fuera de `propio/`, párate y pregunta.** Un hook te avisa en
+  el momento, y no es una formalidad: decide con el usuario si eso era un
+  proceso suyo (entonces va a `propio/`, y hay que moverlo) o una capacidad
+  del framework (entonces se queda, pero se manda al repositorio en una rama
+  aparte, o muere en este clon). No lo resuelvas tú solo ni lo des por bueno
+  porque el código funcione. `db nucleo` lo resume cuando haga falta.
 - **No escribas un módulo CRUD nuevo en `motor/`.** El CRUD lo da
   `motor/registros.py` leyendo la ficha de catálogo: `registro
   crear/listar/editar/borrar <entidad>`. Hubo un `motor/tickets.py` y un

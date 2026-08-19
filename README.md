@@ -495,6 +495,47 @@ carga real no pueden colarse en un commit del framework porque no están en su
 negocio y se movió a la capa propia; es intencionado y no rompe nada, porque
 `_migraciones` indexa por nombre de fichero.
 
+## Si acabas tocando el framework
+
+Va a pasar, y no siempre por error. La interfaz de Tolva es un asistente capaz
+de modificar el propio Tolva: la primera instalación ajena lo hizo en su primera
+sesión —pidieron poder configurar el formato de una salida y el asistente añadió
+un bloque al JSON de la carga y adaptó el generador— y la forma era la correcta.
+
+El problema no era el cambio, era dónde se quedó: en aquel clon, divergiendo en
+silencio de la versión publicada.
+
+Así que escribir fuera de `propio/` dispara un aviso. Inmediato si trabajas con
+Claude Code (un hook `PostToolUse` se lo devuelve al asistente en el momento), y
+a demanda o al cerrar sesión en cualquier caso:
+
+```bash
+python -m motor.cli db nucleo     # qué hay tocado del framework aquí
+```
+
+El aviso **no decide, pregunta**, porque desde la ruta no se distinguen los dos
+casos y solo tú sabes cuál es:
+
+- **Es un proceso tuyo.** Entonces su sitio es `propio/`. Es el caso más
+  frecuente y es un error: en el núcleo se lo lleva por delante la próxima
+  actualización, y además no debería venir de serie en la instalación de nadie.
+- **Es una capacidad del framework**, algo que cualquier instalación querría.
+  Entonces está bien donde está, pero mándala. El argumento no es el altruismo:
+  déjala en una rama aparte y te ahorras el conflicto del próximo `git pull`.
+
+```bash
+git switch -c aporte/formatos-de-salida
+git diff main -- motor migraciones catalogo cargas > aportacion.patch
+```
+
+Repasa el `.patch` antes de mandarlo. **Nada se envía solo**, y es deliberado:
+un diff del núcleo puede arrastrar nombres de columna, SQL o un fixture con
+datos dentro, y el proyecto promete que lo tuyo no sale de tu máquina. Detecta,
+avisa y prepara; el botón de enviar lo apoya una persona.
+
+Si eres tú quien desarrolla el framework, el aviso sobra: pon
+`"mantenedor": true` en `config.local.json`.
+
 ## El dominio de ejemplo
 
 `ejemplos/` es una librería inventada —`demo_cliente`, `demo_libro`,
